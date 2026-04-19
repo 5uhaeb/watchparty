@@ -12,22 +12,24 @@ function generateCode(length = 6) {
   return code;
 }
 
+// Create room
 router.post('/', async (req, res) => {
   try {
     const { name, hostUserId, sourceType = 'youtube', sourceData = {} } = req.body;
 
-    if (!name || !hostUserId) {
-      return res.status(400).json({ message: 'name and hostUserId are required' });
-    }
+    if (!name || !name.trim()) return res.status(400).json({ message: 'name is required' });
+    if (!hostUserId) return res.status(400).json({ message: 'hostUserId is required' });
+    if (name.trim().length > 80) return res.status(400).json({ message: 'name too long' });
 
     let code = generateCode();
-    while (await Room.findOne({ code })) {
+    let attempts = 0;
+    while (await Room.findOne({ code }) && attempts++ < 10) {
       code = generateCode();
     }
 
     const room = await Room.create({
       code,
-      name,
+      name: name.trim(),
       hostUserId,
       sourceType,
       sourceData
@@ -39,15 +41,31 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Get room by code
 router.get('/:code', async (req, res) => {
   try {
-    const room = await Room.findOne({ code: req.params.code, isActive: true });
-
-    if (!room) {
-      return res.status(404).json({ message: 'Room not found' });
-    }
-
+    const code = req.params.code.toUpperCase();
+    const room = await Room.findOne({ code, isActive: true });
+    if (!room) return res.status(404).json({ message: 'Room not found' });
     res.json(room);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Close room (host only)
+router.delete('/:code', async (req, res) => {
+  try {
+    const { hostUserId } = req.body;
+    const room = await Room.findOne({ code: req.params.code.toUpperCase() });
+
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+    if (room.hostUserId !== hostUserId) return res.status(403).json({ message: 'Forbidden' });
+
+    room.isActive = false;
+    await room.save();
+
+    res.json({ message: 'Room closed' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
