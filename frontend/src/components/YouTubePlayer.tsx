@@ -17,27 +17,41 @@ interface Props {
   currentUserId?: string;
 }
 
-export default function YouTubePlayer({ roomCode, videoUrl, isHost = false, currentUserId }: Props) {
+export default function YouTubePlayer({
+  roomCode,
+  videoUrl,
+  currentUserId,
+}: Props) {
   const playerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [isApiReady, setIsApiReady] = useState(false);
-  const isSyncingRef = useRef(false); // prevents echo when we apply remote events
+  const isSyncingRef = useRef(false);
 
   const videoId =
-    videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)?.[1] || videoUrl;
+    videoUrl.match(
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/ \s]+)/
+    )?.[1] || videoUrl;
 
-  // Load YouTube IFrame API once
   useEffect(() => {
     if (window.YT?.Player) {
       setIsApiReady(true);
       return;
     }
+
+    const existing = document.querySelector(
+      'script[src="https://www.youtube.com/iframe_api"]'
+    );
+
+    if (existing) {
+      window.onYouTubeIframeAPIReady = () => setIsApiReady(true);
+      return;
+    }
+
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
-    document.getElementsByTagName('script')[0].parentNode?.insertBefore(
-      tag,
-      document.getElementsByTagName('script')[0]
-    );
+    document.body.appendChild(tag);
+
     window.onYouTubeIframeAPIReady = () => setIsApiReady(true);
   }, []);
 
@@ -46,43 +60,83 @@ export default function YouTubePlayer({ roomCode, videoUrl, isHost = false, curr
 
     playerRef.current = new window.YT.Player(containerRef.current, {
       videoId,
-      playerVars: { autoplay: 0, controls: isHost ? 1 : 0, rel: 0, modestbranding: 1 },
+      width: '100%',
+      height: '100%',
+      playerVars: {
+        autoplay: 0,
+        controls: 1,
+        fs: 1,
+        rel: 0,
+        modestbranding: 1,
+      },
       events: {
+        onReady: (event: any) => {
+          const iframe = event.target?.getIframe?.();
+          if (iframe) {
+            iframe.setAttribute('allowfullscreen', 'true');
+            iframe.setAttribute(
+              'allow',
+              'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen'
+            );
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = '0';
+          }
+        },
         onStateChange: (event: any) => {
           if (isSyncingRef.current) return;
-          if (!isHost) return; // only host broadcasts
 
           const state = event.data;
-          if (state === 1 /* PLAYING */ || state === 2 /* PAUSED */) {
+          if (state === 1 || state === 2) {
             socket.emit('playback:update', {
               roomCode,
               userId: currentUserId,
               playback: {
                 isPlaying: state === 1,
-                currentTime: playerRef.current.getCurrentTime()
-              }
+                currentTime: playerRef.current?.getCurrentTime?.() || 0,
+              },
             });
           }
-        }
-      }
+        },
+      },
     });
 
-    const applyRemotePlayback = (playback: { isPlaying: boolean; currentTime: number }) => {
+    const applyRemotePlayback = (playback: {
+      isPlaying: boolean;
+      currentTime: number;
+    }) => {
       if (!playerRef.current) return;
+
       isSyncingRef.current = true;
-      const curr = playerRef.current.getCurrentTime();
-      if (Math.abs(curr - playback.currentTime) > 2) {
+
+      const curr = playerRef.current.getCurrentTime?.() || 0;
+      if (Math.abs(curr - playback.currentTime) > 1.5) {
         playerRef.current.seekTo(playback.currentTime, true);
       }
-      if (playback.isPlaying) playerRef.current.playVideo();
-      else playerRef.current.pauseVideo();
-      setTimeout(() => { isSyncingRef.current = false; }, 400);
+
+      if (playback.isPlaying) {
+        playerRef.current.playVideo?.();
+      } else {
+        playerRef.current.pauseVideo?.();
+      }
+
+      window.setTimeout(() => {
+        isSyncingRef.current = false;
+      }, 400);
     };
 
-    const onReconnectSync = (playback: { isPlaying: boolean; currentTime: number }) => {
+    const onReconnectSync = (playback: {
+      isPlaying: boolean;
+      currentTime: number;
+    }) => {
       if (!playerRef.current) return;
+
       playerRef.current.seekTo(playback.currentTime, true);
-      if (playback.isPlaying) playerRef.current.playVideo();
+      if (playback.isPlaying) {
+        playerRef.current.playVideo?.();
+      } else {
+        playerRef.current.pauseVideo?.();
+      }
     };
 
     socket.on('playback:update', applyRemotePlayback);
@@ -91,16 +145,73 @@ export default function YouTubePlayer({ roomCode, videoUrl, isHost = false, curr
     return () => {
       socket.off('playback:update', applyRemotePlayback);
       socket.off('reconnect:sync', onReconnectSync);
-      playerRef.current?.destroy();
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
     };
-  }, [isApiReady, videoId, roomCode, isHost, currentUserId]);
+  }, [isApiReady, videoId, roomCode, currentUserId]);
+
+  const syncNow = () => {
+    if (!playerRef.current) return;
+
+    const state = playerRef.current.getPlayerState?.();
+    socket.emit('playback:update', {
+      roomCode,
+      userId: currentUserId,
+      playback: {
+        isPlaying: state === 1,
+        currentTime: playerRef.current.getCurrentTime?.() || 0,
+      },
+    });
+  };
+
+  const enterFullscreen = async () => {
+    const iframe = playerRef.current?.getIframe?.();
+    if (!iframe) return;
+
+    try {
+      if (iframe.requestFullscreen) {
+        await iframe.requestFullscreen();
+      }
+    } catch (err) {
+      console.error('Fullscreen failed', err);
+    }
+  };
 
   return (
-    <div className="card glass" style={{ padding: 0, overflow: 'hidden', aspectRatio: '16/9', position: 'relative' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {!isHost && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 1, cursor: 'default' }} title="Only the host can control playback" />
-      )}
+    <div
+      style={{
+        display: 'grid',
+        gap: 12,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button onClick={syncNow} style={{ padding: '8px 14px' }}>
+          Sync Now
+        </button>
+        <button onClick={enterFullscreen} style={{ padding: '8px 14px' }}>
+          Full Screen
+        </button>
+      </div>
+
+      <div
+        ref={wrapperRef}
+        style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: '16 / 9',
+          borderRadius: 16,
+          overflow: 'hidden',
+          background: '#000',
+        }}
+      >
+        <div ref={containerRef} />
+      </div>
     </div>
   );
 }
