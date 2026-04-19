@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-
+const authRoutes = require('./routes/authRoutes');
+const roomRoutes = require('./routes/roomRoutes');
 const app = express();
 app.set('trust proxy', 1);  // ← ADD THIS LINE
 
