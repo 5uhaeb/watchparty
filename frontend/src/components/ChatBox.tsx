@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 
 type Message = {
@@ -11,10 +11,21 @@ type Message = {
   isSystem?: boolean;
 };
 
-export default function ChatBox({ roomCode, currentUserName, initialMessages = [] }: { roomCode: string; currentUserName: string; initialMessages?: Message[] }) {
+export default function ChatBox({
+  roomCode,
+  currentUserName,
+  initialMessages = [],
+}: {
+  roomCode: string;
+  currentUserName: string;
+  initialMessages?: Message[];
+}) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [text, setText] = useState('');
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [shouldStickToBottom, setShouldStickToBottom] = useState(true);
+
+  const scrollBoxRef = useRef<HTMLDivElement | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMessages(initialMessages);
@@ -26,12 +37,18 @@ export default function ChatBox({ roomCode, currentUserName, initialMessages = [
     };
 
     const handleRoomState = (payload: any) => {
-      if (payload.systemMessage) {
-        setMessages((prev) => [
-          ...prev,
-          { _id: Math.random().toString(), userName: 'System', text: payload.systemMessage, createdAt: new Date().toISOString(), isSystem: true }
-        ]);
-      }
+      if (!payload.systemMessage) return;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          _id: Math.random().toString(),
+          userName: 'System',
+          text: payload.systemMessage,
+          createdAt: new Date().toISOString(),
+          isSystem: true,
+        },
+      ]);
     };
 
     socket.on('chat:new', handleNewMessage);
@@ -44,43 +61,82 @@ export default function ChatBox({ roomCode, currentUserName, initialMessages = [
   }, []);
 
   useEffect(() => {
+    if (!shouldStickToBottom) return;
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, shouldStickToBottom]);
+
+  const handleScroll = () => {
+    const box = scrollBoxRef.current;
+    if (!box) return;
+
+    const distanceFromBottom =
+      box.scrollHeight - box.scrollTop - box.clientHeight;
+
+    setShouldStickToBottom(distanceFromBottom < 80);
+  };
 
   const sendMessage = () => {
     if (!text.trim()) return;
+
     socket.emit('chat:send', {
       roomCode,
       userName: currentUserName,
-      text
+      text,
     });
+
     setText('');
+    setShouldStickToBottom(true);
   };
 
   return (
-    <div className="card glass" style={{ display: 'flex', flexDirection: 'column', height: '600px' }}>
-      <h3 style={{ marginBottom: '16px' }}>Live Chat</h3>
-      <div className="chat-list" style={{ flexGrow: 1 }}>
+    <div style={{ display: 'grid', gap: 12 }}>
+      <h3>Live Chat</h3>
+
+      <div
+        ref={scrollBoxRef}
+        onScroll={handleScroll}
+        style={{
+          maxHeight: 320,
+          overflowY: 'auto',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 14,
+          padding: 12,
+          display: 'grid',
+          gap: 10,
+        }}
+      >
         {messages.map((message, index) => (
-          <div key={message._id || index} className="chat-item" style={message.isSystem ? { opacity: 0.7, borderStyle: 'dashed' } : {}}>
-            <div className="chat-user">{message.isSystem ? '📢' : message.userName}</div>
-            <div className="chat-text">{message.text}</div>
+          <div
+            key={message._id || `${message.userName}-${index}-${message.text}`}
+            style={{
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: message.isSystem
+                ? 'rgba(59,130,246,0.08)'
+                : 'rgba(255,255,255,0.04)',
+            }}
+          >
+            {!message.isSystem && (
+              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                {message.userName}
+              </div>
+            )}
+            <div>{message.text}</div>
           </div>
         ))}
+
         <div ref={chatEndRef} />
       </div>
-      <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-        <input 
-          className="input" 
-          value={text} 
-          onChange={(e) => setText(e.target.value)} 
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Type a message..." 
-          style={{ margin: 0 }}
+          placeholder="Type a message..."
+          style={{ margin: 0, flex: 1 }}
         />
-        <button className="button" onClick={sendMessage} style={{ width: 'auto' }}>
-          Send
-        </button>
+        <button onClick={sendMessage}>Send</button>
       </div>
     </div>
   );
