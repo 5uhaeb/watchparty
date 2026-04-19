@@ -7,11 +7,6 @@ app.set('trust proxy', 1);  // ← ADD THIS LINE
 
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 
-const app = express();
-
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
-app.use(express.json({ limit: '1mb' }));
-
 // Rate limiting: 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
