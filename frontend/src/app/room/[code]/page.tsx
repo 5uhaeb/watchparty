@@ -132,7 +132,7 @@ export default function RoomPage() {
               </p>
               {!isHost && (
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Only the host can control playback. Your player will sync automatically.
+                  Anyone in the room can control playback. The latest action syncs for everyone.
                 </p>
               )}
             </div>
