@@ -90,6 +90,15 @@ export function validateVideoFormat(url: string): {
   format: string | null;
   message: string;
 } {
+  // Check if it's a local file path (Windows: C:\, Unix: /)
+  if (url.match(/^[a-zA-Z]:\\/) || (url.startsWith('/') && !url.includes('://'))) {
+    return {
+      supported: false,
+      format: null,
+      message: '⚠️ Local file paths cannot be played in browsers. Upload the file or use an HTTP/HTTPS URL.'
+    };
+  }
+
   const format = getFileFormatFromUrl(url);
   
   if (!format) {
