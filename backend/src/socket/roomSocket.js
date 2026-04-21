@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Room = require('../models/Room');
+const { verifyExtensionToken } = require('../lib/extensionToken');
 
 function serializeMessage(message) {
   return {
@@ -112,6 +113,44 @@ function registerRoomSocket(io, socket) {
     io.to(targetRoomCode).emit('chat:new', {
       ...serializeMessage(saved),
     });
+  });
+
+  socket.on('extension:join', async ({ roomCode, token }) => {
+    let claims;
+    try {
+      claims = verifyExtensionToken(token);
+    } catch (error) {
+      socket.emit('extension:error', { message: error.message });
+      return;
+    }
+
+    if (!claims) {
+      socket.emit('extension:error', { message: 'Invalid or expired extension token' });
+      return;
+    }
+
+    const room = await Room.findOneAndUpdate(
+      { code: roomCode, isActive: true },
+      {
+        $addToSet: {
+          participants: {
+            userId: claims.sub,
+            name: claims.name || claims.sub,
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!room) {
+      socket.emit('extension:error', { message: 'Room not found' });
+      return;
+    }
+
+    socket.join(roomCode);
+    socket.roomCode = roomCode;
+    socket.userData = { id: claims.sub, name: claims.name || claims.sub };
+    socket.emit('extension:joined', { roomCode, userId: claims.sub });
   });
 
   socket.on('player:play', async ({ roomCode, userId, positionSec }) => {

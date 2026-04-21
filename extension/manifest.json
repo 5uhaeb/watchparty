@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "WatchParty OTT Sync",
+  "version": "0.1.0",
+  "description": "Sync Netflix and Prime Video playback through your WatchParty room. No capture, DRM changes, or rebroadcasting.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://www.netflix.com/*",
+    "https://*.primevideo.com/*",
+    "https://www.amazon.com/gp/video/*",
+    "http://localhost:*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "WatchParty Sync",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.netflix.com/*"],
+      "js": ["content-netflix.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.primevideo.com/*", "https://www.amazon.com/gp/video/*"],
+      "js": ["content-prime.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/socket.io.min.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
