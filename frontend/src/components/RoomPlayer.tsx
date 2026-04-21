@@ -132,12 +132,28 @@ export default function RoomPlayer({
         }
       });
     };
+    const onPlayerState = (state: { isPlaying: boolean; positionSec: number; serverTs?: number }) => {
+      const latencySec =
+        state.isPlaying && state.serverTs
+          ? Math.max(0, (Date.now() - state.serverTs) / 1000)
+          : 0;
+
+      withRemoteGuard(() => {
+        playerRef.current?.seek((state.positionSec || 0) + latencySec);
+        if (state.isPlaying) {
+          playerRef.current?.play();
+        } else {
+          playerRef.current?.pause();
+        }
+      });
+    };
 
     socket.on('player:play', onPlay);
     socket.on('player:pause', onPause);
     socket.on('player:seek', onSeek);
     socket.on('player:heartbeat', onHeartbeat);
     socket.on('reconnect:sync', onReconnectSync);
+    socket.on('player:state', onPlayerState);
 
     return () => {
       socket.off('player:play', onPlay);
@@ -145,6 +161,7 @@ export default function RoomPlayer({
       socket.off('player:seek', onSeek);
       socket.off('player:heartbeat', onHeartbeat);
       socket.off('reconnect:sync', onReconnectSync);
+      socket.off('player:state', onPlayerState);
     };
   }, [applyPause, applyPlay, applySeek, isHost, withRemoteGuard]);
 

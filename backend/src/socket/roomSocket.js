@@ -34,6 +34,67 @@ function canControlRoom(room, userId) {
   return participant || room.hostUserId === userId;
 }
 
+function consumeBucket(socket, name, capacity, refillMs) {
+  socket.rateBuckets ||= {};
+  const now = Date.now();
+  const bucket = socket.rateBuckets[name] || { tokens: capacity, resetAt: now + refillMs };
+
+  if (now >= bucket.resetAt) {
+    bucket.tokens = capacity;
+    bucket.resetAt = now + refillMs;
+  }
+
+  if (bucket.tokens <= 0) {
+    socket.rateBuckets[name] = bucket;
+    socket.emit('rate:limited', {
+      scope: name,
+      retryAfterMs: Math.max(0, bucket.resetAt - now),
+    });
+    return false;
+  }
+
+  bucket.tokens -= 1;
+  socket.rateBuckets[name] = bucket;
+  return true;
+}
+
+async function emitChatHistory(socket, roomCode) {
+  const targetRoomCode = roomCode || socket.roomCode;
+  if (!targetRoomCode) return;
+
+  const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+  if (!room) return;
+
+  const messages = await Message.find({ roomId: room._id })
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(50);
+
+  socket.emit('chat:history', messages.reverse().map(serializeMessage));
+}
+
+function getCompensatedPosition(playback = {}) {
+  let positionSec = Number(playback.currentTime || 0);
+  if (playback.isPlaying && playback.updatedAt) {
+    const elapsed = (Date.now() - new Date(playback.updatedAt).getTime()) / 1000;
+    positionSec = Math.max(0, positionSec + elapsed);
+  }
+  return positionSec;
+}
+
+function serializePlayerState(room) {
+  const playback = room.playback || {};
+  return {
+    source: {
+      type: room.sourceType,
+      data: room.sourceData,
+    },
+    positionSec: getCompensatedPosition(playback),
+    isPlaying: !!playback.isPlaying,
+    hostUserId: room.hostUserId,
+    serverTs: Date.now(),
+  };
+}
+
 function registerRoomSocket(io, socket) {
   socket.on('user:join', ({ userId }) => {
     if (!userId) return;
@@ -98,6 +159,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('chat:send', async ({ roomCode, userName, text }) => {
+    if (!consumeBucket(socket, 'chat', 5, 10 * 1000)) return;
     if (!text) return;
 
     const trimmed = text.trim();
@@ -123,6 +185,10 @@ function registerRoomSocket(io, socket) {
     io.to(targetRoomCode).emit('chat:new', {
       ...serializeMessage(saved),
     });
+  });
+
+  socket.on('chat:history', async ({ roomCode } = {}) => {
+    await emitChatHistory(socket, roomCode);
   });
 
   socket.on('extension:join', async ({ roomCode, token }) => {
@@ -164,6 +230,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('player:play', async ({ roomCode, userId, positionSec }) => {
+    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
@@ -191,6 +258,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('player:pause', async ({ roomCode, userId, positionSec }) => {
+    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
@@ -218,6 +286,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('player:seek', async ({ roomCode, userId, positionSec }) => {
+    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
@@ -244,6 +313,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('player:heartbeat', async ({ roomCode, positionSec }) => {
+    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket);
     const room = await Room.findOne({ code: targetRoomCode });
@@ -267,6 +337,23 @@ function registerRoomSocket(io, socket) {
       positionSec: nextPosition,
       atServerTs,
     });
+  });
+
+  socket.on('player:state', async ({ roomCode } = {}, callback) => {
+    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
+
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    if (!targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room) return;
+
+    const payload = serializePlayerState(room);
+    if (typeof callback === 'function') {
+      callback(payload);
+      return;
+    }
+    socket.emit('player:state', payload);
   });
 
   // anyone in the room can drive sync now

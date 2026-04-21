@@ -29,6 +29,8 @@ export default function ChatBox({
   const [shouldStickToBottom, setShouldStickToBottom] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [now, setNow] = useState(Date.now());
 
   const scrollBoxRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -79,13 +81,32 @@ export default function ChatBox({
     socket.on('chat:new', handleNewMessage);
     socket.on('chat:history', handleHistory);
     socket.on('room:state', handleRoomState);
+    socket.on('rate:limited', handleRateLimited);
 
     return () => {
       socket.off('chat:new', handleNewMessage);
       socket.off('chat:history', handleHistory);
       socket.off('room:state', handleRoomState);
+      socket.off('rate:limited', handleRateLimited);
     };
   }, []);
+
+  const handleRateLimited = (payload: { scope?: string; retryAfterMs?: number }) => {
+    if (payload.scope !== 'chat') return;
+    setCooldownUntil(Date.now() + Math.max(0, payload.retryAfterMs || 0));
+  };
+
+  useEffect(() => {
+    if (!cooldownUntil) return;
+    const intervalId = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(intervalId);
+  }, [cooldownUntil]);
+
+  useEffect(() => {
+    if (cooldownUntil && now >= cooldownUntil) {
+      setCooldownUntil(0);
+    }
+  }, [cooldownUntil, now]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -140,7 +161,7 @@ export default function ChatBox({
   };
 
   const sendMessage = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || cooldownUntil > Date.now()) return;
 
     socket.emit('chat:send', {
       roomCode,
@@ -151,6 +172,9 @@ export default function ChatBox({
     setText('');
     setShouldStickToBottom(true);
   };
+
+  const cooldownMs = Math.max(0, cooldownUntil - now);
+  const isCoolingDown = cooldownMs > 0;
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -197,11 +221,17 @@ export default function ChatBox({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Type a message..."
+          placeholder={isCoolingDown ? `Slow down ${Math.ceil(cooldownMs / 1000)}s` : 'Type a message...'}
+          disabled={isCoolingDown}
           style={{ margin: 0, flex: 1 }}
         />
-        <button onClick={sendMessage}>Send</button>
+        <button onClick={sendMessage} disabled={isCoolingDown}>Send</button>
       </div>
+      {isCoolingDown && (
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+          Message cooldown active for {Math.ceil(cooldownMs / 1000)}s.
+        </div>
+      )}
     </div>
   );
 }

@@ -28,7 +28,7 @@ app.use(express.json());   // <-- add this
 app.use(express.urlencoded({ extended: true })); // optional but useful
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,

@@ -1,13 +1,38 @@
 import type { NextAuthOptions } from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 
-export const authOptions: NextAuthOptions = {
-  providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!
+const providers: NextAuthOptions['providers'] = [
+  GoogleProvider({
+    clientId: process.env.GOOGLE_CLIENT_ID!,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET!
+  })
+];
+
+if (process.env.NODE_ENV !== 'production') {
+  providers.push(
+    CredentialsProvider({
+      id: 'test-login',
+      name: 'Test Login',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' }
+      },
+      async authorize(credentials) {
+        if (credentials?.password !== 'test-password' || !credentials.email) return null;
+
+        return {
+          id: credentials.email,
+          email: credentials.email,
+          name: credentials.email.split('@')[0],
+        };
+      }
     })
-  ],
+  );
+}
+
+export const authOptions: NextAuthOptions = {
+  providers,
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
     async signIn({ user }) {

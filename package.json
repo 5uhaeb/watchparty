@@ -1,0 +1,25 @@
+{
+  "name": "watchparty-starter",
+  "version": "1.0.0",
+  "description": "WatchParty full-stack app and E2E harness",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/5uhaeb/watchparty.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/5uhaeb/watchparty/issues"
+  },
+  "homepage": "https://github.com/5uhaeb/watchparty#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "socket.io-client": "^4.8.3"
+  }
+}

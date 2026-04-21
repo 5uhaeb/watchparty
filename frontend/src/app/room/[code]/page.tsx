@@ -35,6 +35,15 @@ export default function RoomPage() {
 
     socket.connect();
 
+    const joinCurrentRoom = () => {
+      socket.emit('room:join', {
+        roomCode: code,
+        user: { id: userEmail, name: userName }
+      });
+      socket.emit('player:state', { roomCode: code });
+      socket.emit('chat:history', { roomCode: code });
+    };
+
     const handleRoomState = (payload: any) => {
       if (payload.room) setRoom(payload.room);
       if (payload.messages) setMessages(payload.messages);
@@ -47,17 +56,16 @@ export default function RoomPage() {
 
     socket.on('room:state', handleRoomState);
     socket.on('room:kicked', handleKicked);
+    socket.io.on('reconnect', joinCurrentRoom);
 
-    socket.emit('room:join', {
-      roomCode: code,
-      user: { id: userEmail, name: userName }
-    });
+    joinCurrentRoom();
 
     getRoom(code).then(setRoom).catch(() => {});
 
     return () => {
       socket.off('room:state', handleRoomState);
       socket.off('room:kicked', handleKicked);
+      socket.io.off('reconnect', joinCurrentRoom);
       socket.emit('room:leave');
     };
   }, [code, userEmail, userName]);
