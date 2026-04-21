@@ -3,13 +3,9 @@ import { io, Socket } from 'socket.io-client';
 
 const backendURL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://127.0.0.1:5000';
 
-async function testLogin(page: Page, email: string) {
-  await page.goto('/api/auth/signin/test-login');
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill('test-password');
-  await page.locator('button[type="submit"]').click();
+async function bootstrapGuest(page: Page, expectedNamePattern = /anonymous guest/i) {
   await page.goto('/dashboard');
-  await expect(page.getByText(email.split('@')[0])).toBeVisible();
+  await expect(page.getByText(expectedNamePattern)).toBeVisible();
 }
 
 function waitForSocketEvent<T>(socket: Socket, eventName: string) {
@@ -22,8 +18,8 @@ test('two users can create, join, chat, sync playback, and hit chat rate limits'
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
 
-  await testLogin(host, 'host@example.com');
-  await testLogin(guest, 'guest@example.com');
+  await bootstrapGuest(host);
+  await bootstrapGuest(guest);
 
   await host.goto('/create-room');
   await host.locator('input[placeholder="e.g. Movie Night"]').fill('E2E Watch Room');
@@ -36,17 +32,21 @@ test('two users can create, join, chat, sync playback, and hit chat rate limits'
 
   await guest.goto('/dashboard');
   await guest.locator('input[placeholder^="Room code"]').fill(roomCode);
-  await guest.getByRole('button', { name: /^Join Room$/ }).click();
+  await guest.getByRole('button', { name: /^Join room$/i }).click();
   await guest.waitForURL(new RegExp(`/room/${roomCode}`));
+
+  const bootstrap = await hostContext.request.post(`${backendURL}/api/guest/bootstrap`);
+  const cookie = bootstrap.headers()['set-cookie']?.split(';')[0] || '';
 
   const observer = io(backendURL, {
     transports: ['websocket'],
     reconnection: false,
+    extraHeaders: cookie ? { Cookie: cookie } : undefined,
   });
   await new Promise<void>((resolve) => observer.once('connect', resolve));
   observer.emit('room:join', {
     roomCode,
-    user: { id: 'observer@example.com', name: 'Observer' },
+    user: { id: 'observer', name: 'Observer' },
   });
 
   await host.locator('input[placeholder="Type a message..."]').fill('hello from host');

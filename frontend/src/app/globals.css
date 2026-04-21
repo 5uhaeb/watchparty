@@ -294,14 +294,12 @@ textarea {
 .form-stack,
 .chat-panel,
 .player-stack,
-.ott-panel,
-.friends-stack {
+.ott-panel {
   display: grid;
   gap: 20px;
 }
 
-.app-stack,
-.friends-stack {
+.app-stack {
   gap: 24px;
 }
 

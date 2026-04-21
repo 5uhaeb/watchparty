@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { socket } from '@/lib/socket';
 import { getRoom } from '@/lib/api';
 import ChatBox from '@/components/ChatBox';
 import RoomPlayer from '@/components/RoomPlayer';
 import UserList from '@/components/UserList';
 import VideoCallPanel from '@/components/VideoCallPanel';
+import { useGuest } from '@/components/GuestProvider';
 
 type SourceType = 'youtube' | 'local' | 'localStream' | 'ott-sync';
 
@@ -29,16 +29,13 @@ function prettyDuration(seconds?: number) {
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { guest } = useGuest();
   const code = (params.code as string).toUpperCase();
 
   const [room, setRoom] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
-  const [showInvite, setShowInvite] = useState(false);
-  const [friends, setFriends] = useState<any[]>([]);
-  const [inviteMessage, setInviteMessage] = useState('');
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [sourceTypeDraft, setSourceTypeDraft] = useState<SourceType>('youtube');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
@@ -49,9 +46,9 @@ export default function RoomPage() {
   const [localStreamFile, setLocalStreamFile] = useState<File | null>(null);
   const [streamNotice, setStreamNotice] = useState('');
 
-  const userEmail = session?.user?.email ?? '';
-  const userName = session?.user?.name ?? 'Guest';
-  const isHost = !!room && room.hostUserId === userEmail;
+  const guestId = guest?.guestId ?? '';
+  const userName = guest?.displayName ?? 'Guest';
+  const isHost = !!room && room.hostUserId === guestId;
   const roomSourceType = room?.source?.type || room?.sourceType;
   const roomSourceData = room?.source?.data || room?.sourceData;
   const roomSourceUrl = room?.source?.url || roomSourceData?.url;
@@ -64,7 +61,7 @@ export default function RoomPage() {
     const joinCurrentRoom = () => {
       socket.emit('room:join', {
         roomCode: code,
-        user: { id: userEmail, name: userName }
+        user: { id: guestId, name: userName }
       });
       socket.emit('player:state', { roomCode: code });
       socket.emit('chat:history', { roomCode: code });
@@ -112,7 +109,7 @@ export default function RoomPage() {
       socket.io.off('reconnect', joinCurrentRoom);
       socket.emit('room:leave');
     };
-  }, [code, userEmail, userName]);
+  }, [code, guestId, userName]);
 
   useEffect(() => {
     if (!room) return;
@@ -132,31 +129,6 @@ export default function RoomPage() {
     });
   };
 
-  const openInviteModal = async () => {
-    setShowInvite(true);
-    setInviteMessage('');
-    if (!userEmail) return;
-
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/friends?userId=${encodeURIComponent(userEmail)}`, { cache: 'no-store' });
-    if (res.ok) {
-      const payload = await res.json();
-      setFriends(payload.friends || []);
-    }
-  };
-
-  const inviteFriend = async (toUserId: string) => {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}/invites`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': userEmail,
-      },
-      body: JSON.stringify({ toUserId }),
-    });
-
-    setInviteMessage(res.ok ? 'Invite sent.' : (await res.json()).message || 'Invite failed.');
-  };
-
   const leaveRoom = () => {
     socket.emit('room:leave');
     router.push('/dashboard');
@@ -170,7 +142,7 @@ export default function RoomPage() {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hostUserId: userEmail }),
+      credentials: 'include',
     });
 
     if (res.ok) {
@@ -206,8 +178,8 @@ export default function RoomPage() {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-id': userEmail,
       },
+      credentials: 'include',
       body: JSON.stringify({
         sourceType: sourceTypeDraft,
         sourceData,
@@ -258,9 +230,6 @@ export default function RoomPage() {
           <button className="button button-secondary" onClick={copyInviteLink}>
             {copied ? 'Copied' : 'Invite link'}
           </button>
-          <button className="button button-secondary" onClick={openInviteModal}>
-            Invite Friend
-          </button>
           {isHost && (
             <button className="button button-secondary" onClick={() => setShowSourceModal(true)}>
               Change Source
@@ -298,7 +267,7 @@ export default function RoomPage() {
             sourceData={roomSourceData}
             localStreamFile={localStreamFile}
             isHost={isHost}
-            currentUserId={userEmail}
+            currentUserId={guestId}
             onLocalStreamStopped={() => {
               setLocalStreamFile(null);
               setStreamNotice('Host ended the stream.');
@@ -335,7 +304,7 @@ export default function RoomPage() {
           {showCall && (
             <VideoCallPanel
               roomCode={code}
-              currentUser={{ id: userEmail || userName, name: userName }}
+              currentUser={{ id: guestId || userName, name: userName }}
             />
           )}
 
@@ -348,46 +317,12 @@ export default function RoomPage() {
           <UserList
             initialParticipants={room.participants}
             hostUserId={room.hostUserId}
-            currentUserEmail={userEmail}
+            currentUserEmail={guestId}
             roomCode={code}
             isStreaming={roomSourceType === 'localStream'}
           />
         </div>
       </div>
-
-      {showInvite && (
-        <div className="modal-backdrop">
-          <div className="card glass modal-card" style={{ width: 'min(460px, 100%)' }}>
-            <div className="modal-header" style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0 }}>Invite Friends</h3>
-              <button className="button button-secondary" onClick={() => setShowInvite(false)} style={{ width: 'auto', padding: '6px 10px' }}>
-                Close
-              </button>
-            </div>
-            {friends.length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)' }}>No accepted friends yet. Add friends from the Friends page first.</p>
-            ) : (
-              <div style={{ display: 'grid', gap: 10 }}>
-                {friends.map((friendship) => {
-                  const friend = friendship.requesterId === userEmail ? friendship.addressee : friendship.requester;
-                  return (
-                    <div key={friendship.id} className="list-row">
-                      <div className="list-row-main">
-                        <div style={{ fontWeight: 700 }}>{friend?.name || friend?.email}</div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{friend?.email}</div>
-                      </div>
-                      <button className="button" onClick={() => inviteFriend(friend.email)} style={{ width: 'auto', padding: '7px 12px' }}>
-                        Invite
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {inviteMessage && <p style={{ margin: '12px 0 0', color: 'var(--primary)' }}>{inviteMessage}</p>}
-          </div>
-        </div>
-      )}
 
       {showSourceModal && (
         <div className="modal-backdrop">

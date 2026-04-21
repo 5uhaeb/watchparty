@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const app = require('./app');
 const connectDB = require('./config/db');
 const registerRoomSocket = require('./socket/roomSocket');
+const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
 
 connectDB();
 
@@ -28,6 +29,42 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+
+const handshakeBuckets = new Map();
+
+function consumeHandshake(ip) {
+  const now = Date.now();
+  const bucket = handshakeBuckets.get(ip) || { tokens: 30, resetAt: now + 60 * 1000 };
+  if (now >= bucket.resetAt) {
+    bucket.tokens = 30;
+    bucket.resetAt = now + 60 * 1000;
+  }
+  if (bucket.tokens <= 0) {
+    handshakeBuckets.set(ip, bucket);
+    return false;
+  }
+  bucket.tokens -= 1;
+  handshakeBuckets.set(ip, bucket);
+  return true;
+}
+
+io.use(async (socket, next) => {
+  try {
+    const ip = socket.handshake.address || socket.request.socket.remoteAddress || 'unknown';
+    if (!consumeHandshake(ip)) return next(new Error('Rate limited'));
+
+    const result = await getGuestFromToken(getGuestToken(socket.request));
+    if (!result?.guest) return next(new Error('JWT auth required'));
+
+    const guest = serializeGuest(result.guest);
+    socket.data.guestId = guest.guestId;
+    socket.data.displayName = guest.displayName;
+    socket.data.avatarHue = guest.avatarHue;
+    return next();
+  } catch {
+    return next(new Error('JWT auth required'));
+  }
+});
 
 io.on('connection', (socket) => {
   registerRoomSocket(io, socket);

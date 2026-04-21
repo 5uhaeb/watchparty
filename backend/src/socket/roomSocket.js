@@ -21,7 +21,7 @@ function getRoomCode(socket, roomCode) {
 }
 
 function getUserId(socket, userId) {
-  return userId || socket.userData?.id || socket.userData?.name;
+  return socket.data?.guestId || userId || socket.userData?.id || socket.userData?.name;
 }
 
 function canControlRoom(room, userId) {
@@ -140,27 +140,29 @@ function serializePlayerState(room) {
 
 function registerRoomSocket(io, socket) {
   socket.on('user:join', ({ userId }) => {
-    if (!userId) return;
-    socket.userId = userId;
-    socket.join(`user:${userId}`);
+    const guestId = socket.data?.guestId || userId;
+    if (!guestId) return;
+    socket.userId = guestId;
+    socket.join(`user:${guestId}`);
   });
 
-  socket.on('room:join', async ({ roomCode, user }) => {
+  socket.on('room:join', async ({ roomCode, user = {} }) => {
+    const guestId = socket.data?.guestId || user.id || user.name;
+    const displayName = socket.data?.displayName || user.name || 'Guest';
+
     socket.join(roomCode);
     socket.roomCode = roomCode;
-    socket.userData = user;
-    if (user?.id) {
-      socket.userId = user.id;
-      socket.join(`user:${user.id}`);
-    }
+    socket.userData = { id: guestId, name: displayName };
+    socket.userId = guestId;
+    socket.join(`user:${guestId}`);
 
     const room = await Room.findOneAndUpdate(
       { code: roomCode, isActive: true },
       {
         $addToSet: {
           participants: {
-            userId: user.id || user.name,
-            name: user.name,
+            userId: guestId,
+            name: displayName,
           },
         },
       },
@@ -169,7 +171,7 @@ function registerRoomSocket(io, socket) {
 
     if (!room) return;
 
-    socket.isHost = room.hostUserId === (user.id || user.name);
+    socket.isHost = room.hostUserId === guestId;
 
     const messages = await Message.find({ roomId: room._id })
       .sort({ createdAt: -1, _id: -1 })
@@ -182,7 +184,7 @@ function registerRoomSocket(io, socket) {
     // lightweight participant update + system message to everyone else
     socket.to(roomCode).emit('room:state', {
       room,
-      systemMessage: `${user.name} joined the room`,
+      systemMessage: `${displayName} joined the room`,
     });
 
     const pb = room.playback || {};
@@ -214,8 +216,8 @@ function registerRoomSocket(io, socket) {
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     if (!room) return;
 
-    const userId = socket.userData?.id || userName;
-    const username = socket.userData?.name || userName;
+    const userId = socket.data?.guestId || socket.userData?.id || userName;
+    const username = socket.data?.displayName || socket.userData?.name || userName;
 
     const saved = await Message.create({
       roomId: room._id,
@@ -544,7 +546,8 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('room:kick', async ({ roomCode, targetName, hostUserId }) => {
+  socket.on('room:kick', async ({ roomCode, targetName }) => {
+    const hostUserId = getUserId(socket);
     const room = await Room.findOne({ code: roomCode });
     if (!room || room.hostUserId !== hostUserId) return;
 

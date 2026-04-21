@@ -1,9 +1,8 @@
 const express = require('express');
-const Friendship = require('../models/Friendship');
-const Invite = require('../models/Invite');
 const Room = require('../models/Room');
 const Message = require('../models/Message');
 const { getFileFormatFromUrl, getMimeType } = require('../lib/videoFormats');
+const { requireGuest } = require('../lib/guestAuth');
 
 const router = express.Router();
 
@@ -48,30 +47,16 @@ function serializeMessage(message) {
 }
 
 function getUserId(req) {
-  return req.get('x-user-id') || req.body.userId || req.query.userId;
-}
-
-function serializeInvite(invite, room) {
-  return {
-    id: invite._id,
-    roomId: invite.roomId,
-    roomCode: room?.code,
-    roomName: room?.name,
-    fromUserId: invite.fromUserId,
-    toUserId: invite.toUserId,
-    status: invite.status,
-    createdAt: invite.createdAt,
-    expiresAt: invite.expiresAt
-  };
+  return req.guest?.guestId;
 }
 
 // Create room
-router.post('/', async (req, res) => {
+router.post('/', requireGuest, async (req, res) => {
   try {
-    const { name, hostUserId, sourceType = 'youtube', sourceData = {} } = req.body;
+    const { name, sourceType = 'youtube', sourceData = {} } = req.body;
+    const hostUserId = req.guest.guestId;
 
     if (!name || !name.trim()) return res.status(400).json({ message: 'name is required' });
-    if (!hostUserId) return res.status(400).json({ message: 'hostUserId is required' });
     if (name.trim().length > 80) return res.status(400).json({ message: 'name too long' });
     if (sourceData.fileName && /[/\\:]/.test(sourceData.fileName)) {
       return res.status(400).json({ message: 'fileName must not contain path separators' });
@@ -133,51 +118,7 @@ router.get('/:id/messages', async (req, res) => {
   }
 });
 
-router.post('/:id/invites', async (req, res) => {
-  try {
-    const fromUserId = getUserId(req);
-    const { toUserId } = req.body;
-    if (!fromUserId || !toUserId) {
-      return res.status(400).json({ message: 'userId and toUserId are required' });
-    }
-
-    const room = await findRoomByIdOrCode(req.params.id);
-    if (!room) return res.status(404).json({ message: 'Room not found' });
-
-    const participant = room.participants?.some(
-      (p) => p.userId === fromUserId || p.name === fromUserId
-    );
-    if (room.hostUserId !== fromUserId && !participant) {
-      return res.status(403).json({ message: 'Must be host or in room to invite' });
-    }
-
-    const friendship = await Friendship.findOne({
-      status: 'accepted',
-      $or: [
-        { requesterId: fromUserId, addresseeId: toUserId },
-        { requesterId: toUserId, addresseeId: fromUserId }
-      ]
-    });
-    if (!friendship) {
-      return res.status(400).json({ message: 'Can only invite accepted friends' });
-    }
-
-    const invite = await Invite.create({
-      roomId: room._id,
-      fromUserId,
-      toUserId,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
-    });
-
-    const payload = serializeInvite(invite, room);
-    req.app.get('io')?.to(`user:${toUserId}`).emit('invite:new', payload);
-    res.status(201).json(payload);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-router.patch('/:id/source', async (req, res) => {
+router.patch('/:id/source', requireGuest, async (req, res) => {
   try {
     const userId = getUserId(req);
     const { sourceType, sourceData = {} } = req.body;
@@ -234,9 +175,9 @@ router.get('/:code', async (req, res) => {
 });
 
 // Close room (host only)
-router.delete('/:code', async (req, res) => {
+router.delete('/:code', requireGuest, async (req, res) => {
   try {
-    const { hostUserId } = req.body;
+    const hostUserId = req.guest.guestId;
     const room = await Room.findOne({ code: req.params.code.toUpperCase() });
 
     if (!room) return res.status(404).json({ message: 'Room not found' });

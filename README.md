@@ -4,7 +4,7 @@ A simple full-stack watch party starter with:
 - Next.js frontend
 - Express + Socket.IO backend
 - MongoDB Atlas
-- Google OAuth with NextAuth
+- Anonymous guest identity
 - Room creation, join, chat, and basic playback sync
 
 ## Important note on streaming platforms
@@ -12,6 +12,7 @@ This starter supports:
 - YouTube links
 - local file playback metadata sync
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
+- anonymous guest identity with a signed httpOnly cookie
 
 For Netflix, Prime Video, and Hotstar, this project is designed for **sync only**. It does not capture or rebroadcast protected streams. A browser extension is the practical next step for full remote-control sync on those sites.
 
@@ -68,15 +69,12 @@ npm run dev
 PORT=5000
 CLIENT_URL=http://localhost:3000
 MONGODB_URI=your_mongodb_atlas_uri
-JWT_SECRET=replace_me
+GUEST_JWT_SECRET=replace_me
+EXTENSION_TOKEN_SECRET=replace_me
 ```
 
 ### Frontend `.env.local`
 ```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=replace_me
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
@@ -92,7 +90,7 @@ NEXT_PUBLIC_TURN_CRED=
 - Allow CORS for the frontend URL in backend env
 
 ## What is included
-- Google login
+- anonymous guest bootstrap
 - dashboard
 - create room page
 - room join page
@@ -104,4 +102,4 @@ NEXT_PUBLIC_TURN_CRED=
 - persistent chat storage
 - YouTube iframe sync adapter
 - browser extension for OTT sync
-- friends/invites
+- optional accounts

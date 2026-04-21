@@ -2,42 +2,15 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
+import { useGuest } from '@/components/GuestProvider';
 
 export default function DashboardPage() {
-  const { data: session, status } = useSession();
+  const { guest } = useGuest();
   const router = useRouter();
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [joining, setJoining] = useState(false);
-
-  if (status === 'loading') {
-    return (
-      <div className="center-screen">
-        <div className="card glass" style={{ padding: '40px', textAlign: 'center' }}>
-          <h2>Loading...</h2>
-        </div>
-      </div>
-    );
-  }
-
-  if (!session?.user) {
-    return (
-      <div className="center-screen">
-        <div className="card glass" style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div className="label-tag" style={{ marginBottom: '12px' }}>Sign in</div>
-          <h2>Authentication required</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-            Sign in with Google to access your dashboard.
-          </p>
-          <button className="button" onClick={() => signIn('google')} style={{ width: '100%' }}>
-            Login with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   const handleJoin = async () => {
     const code = joinCode.trim().toUpperCase();
@@ -48,7 +21,9 @@ export default function DashboardPage() {
     setJoining(true);
     setJoinError('');
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
+        credentials: 'include',
+      });
       if (!res.ok) {
         setJoinError('Room not found. Check the code and try again.');
         return;
@@ -62,34 +37,30 @@ export default function DashboardPage() {
   };
 
   const steps = [
-    { number: '1', title: 'Create a room', desc: 'Choose YouTube, local file, or OTT sync mode.' },
-    { number: '2', title: 'Share the code', desc: 'Send the room code or invite link to your friends.' },
-    { number: '3', title: 'Watch together', desc: 'Video stays synced within about one second.' },
-    { number: '4', title: 'Chat and call', desc: 'Live chat and WebRTC video call in the same room.' },
+    { number: '1', title: 'Create a room', desc: 'Choose YouTube, local streaming, file link, or OTT sync mode.' },
+    { number: '2', title: 'Share the code', desc: 'Send the room code or invite link to anyone.' },
+    { number: '3', title: 'Watch together', desc: 'Playback stays synced, or viewers watch the host stream live.' },
+    { number: '4', title: 'Chat and call', desc: 'Live chat and WebRTC video call stay inside the room.' },
   ];
 
   return (
     <div className="dashboard-stack">
       <header>
         <h1 style={{ marginBottom: '6px' }}>Dashboard</h1>
-        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Welcome back, {session.user.name}</p>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Welcome back, {guest?.displayName}</p>
       </header>
 
       <div className="row">
         <div className="card glass">
-          <h3 style={{ marginBottom: '16px' }}>Your profile</h3>
+          <h3 style={{ marginBottom: '16px' }}>Your guest identity</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {session.user.image ? (
-              <img src={session.user.image} alt="Avatar" referrerPolicy="no-referrer" style={{ width: '64px', height: '64px', borderRadius: '50%', border: 'var(--outline-thin) solid var(--outline)' }} />
-            ) : (
-              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--blue)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 700 }}>
-                {session.user.name?.charAt(0)}
-              </div>
-            )}
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: `hsl(${guest?.avatarHue || 0} 78% 48%)`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 700 }}>
+              {guest?.displayName.charAt(0).toUpperCase()}
+            </div>
             <div>
-              <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{session.user.name}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{session.user.email}</div>
-              <div className="label-tag" style={{ marginTop: '4px' }}>Google account</div>
+              <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{guest?.displayName}</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Anonymous guest</div>
+              <div className="label-tag" style={{ marginTop: '4px' }}>No account required</div>
             </div>
           </div>
         </div>
@@ -99,7 +70,7 @@ export default function DashboardPage() {
             <div className="label-tag" style={{ marginBottom: '10px' }}>Start</div>
             <h3 style={{ margin: '0 0 6px' }}>Start a watch party</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
-              Create a room and invite your friends.
+              Create a room and share the code.
             </p>
           </div>
           <Link href="/create-room" className="button" style={{ width: '100%', textAlign: 'center' }}>
@@ -117,8 +88,11 @@ export default function DashboardPage() {
           <input
             className="input"
             value={joinCode}
-            onChange={e => { setJoinCode(e.target.value.toUpperCase()); setJoinError(''); }}
-            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+            onChange={(event) => {
+              setJoinCode(event.target.value.toUpperCase());
+              setJoinError('');
+            }}
+            onKeyDown={(event) => event.key === 'Enter' && handleJoin()}
             placeholder="Room code (e.g. ABC123)"
             maxLength={8}
             style={{ flex: 1, minWidth: '180px', margin: 0, fontFamily: 'monospace', letterSpacing: '0.1em', fontWeight: 600, fontSize: '1rem' }}
@@ -135,7 +109,7 @@ export default function DashboardPage() {
       <div className="card glass">
         <h3 style={{ marginBottom: '16px' }}>How it works</h3>
         <div className="responsive-grid">
-          {steps.map(step => (
+          {steps.map((step) => (
             <div key={step.title} className="row-item" style={{ alignItems: 'center' }}>
               <span className="chip chip-yellow">{step.number}</span>
               <div>

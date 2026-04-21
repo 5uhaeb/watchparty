@@ -15,7 +15,7 @@ function base64urlJson(value) {
 }
 
 function getSecret() {
-  return process.env.EXTENSION_TOKEN_SECRET || process.env.NEXTAUTH_SECRET || process.env.SESSION_SECRET;
+  return process.env.EXTENSION_TOKEN_SECRET || process.env.GUEST_JWT_SECRET || process.env.SESSION_SECRET;
 }
 
 function signExtensionToken(user, ttlSec = TOKEN_TTL_SEC) {
@@ -26,8 +26,8 @@ function signExtensionToken(user, ttlSec = TOKEN_TTL_SEC) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
     aud: 'watchparty-extension',
-    sub: user.email,
-    name: user.name || user.email,
+    sub: user.id,
+    name: user.name || user.id,
     iat: now,
     exp: now + ttlSec,
   };

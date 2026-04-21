@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession, signIn } from 'next-auth/react';
 import { createRoom } from '@/lib/api';
 import { validateVideoFormat } from '@/lib/videoFormats';
 
 export default function CreateRoomPage() {
-  const { data: session } = useSession();
   const router = useRouter();
   const [name, setName] = useState('Friday Watch Party');
   const [sourceType, setSourceType] = useState<'youtube' | 'local' | 'ott-sync'>('youtube');
@@ -25,29 +23,11 @@ export default function CreateRoomPage() {
     setFormatValidation(result);
   };
 
-  if (!session?.user) {
-    return (
-      <div className="center-screen">
-        <div className="card glass" style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div className="label-tag" style={{ marginBottom: '12px' }}>Sign in</div>
-          <h2>Authentication required</h2>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-            Please log in to create and host your own watch party rooms.
-          </p>
-          <button className="button" onClick={() => signIn('google')}>
-            Login with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const handleCreate = async () => {
     try {
       setLoading(true);
       const payload = {
         name,
-        hostUserId: session.user.email || session.user.name || 'host',
         sourceType,
         sourceData:
           sourceType === 'ott-sync'

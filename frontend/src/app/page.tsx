@@ -8,7 +8,7 @@ export default function HomePage() {
           Watch movies together, anywhere in the world.
         </h1>
         <p className="hero-copy">
-          Experience seamless synchronized playback with friends. YouTube, local files, and more.
+          Experience seamless synchronized playback with your people. YouTube, local files, and more.
           The ultimate watch party platform with low-latency sync and real-time chat.
         </p>
         <div className="cta-row">
@@ -33,7 +33,7 @@ export default function HomePage() {
           <div className="label-tag" style={{ marginBottom: '12px' }}>Chat</div>
           <h3>Real-time interaction</h3>
           <p style={{ color: 'var(--text-secondary)' }}>
-            Engage with your friends via high-speed chat. See who is online and watching in real time.
+            Engage with everyone via high-speed chat. See who is online and watching in real time.
           </p>
         </div>
         <div className="card glass">
