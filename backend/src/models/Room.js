@@ -13,6 +13,8 @@ const roomSchema = new mongoose.Schema(
     sourceData: {
       url: String,
       fileName: String,
+      fileFormat: String,  // e.g., 'mp4', 'webm', 'mkv', 'avi'
+      mimeType: String,    // e.g., 'video/mp4'
       ottPlatform: String
     },
     playback: {

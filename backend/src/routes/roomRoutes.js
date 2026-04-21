@@ -3,6 +3,7 @@ const Friendship = require('../models/Friendship');
 const Invite = require('../models/Invite');
 const Room = require('../models/Room');
 const Message = require('../models/Message');
+const { getFileFormatFromUrl, getMimeType } = require('../lib/videoFormats');
 
 const router = express.Router();
 
@@ -72,6 +73,15 @@ router.post('/', async (req, res) => {
     if (!name || !name.trim()) return res.status(400).json({ message: 'name is required' });
     if (!hostUserId) return res.status(400).json({ message: 'hostUserId is required' });
     if (name.trim().length > 80) return res.status(400).json({ message: 'name too long' });
+
+    // Extract format info for local/file videos
+    if ((sourceType === 'local' || sourceType === 'file') && sourceData.url) {
+      const format = getFileFormatFromUrl(sourceData.url);
+      if (format) {
+        sourceData.fileFormat = format;
+        sourceData.mimeType = getMimeType(format);
+      }
+    }
 
     let code = generateCode();
     let attempts = 0;

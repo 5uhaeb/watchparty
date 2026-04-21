@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
 import { createRoom } from '@/lib/api';
+import { validateVideoFormat } from '@/lib/videoFormats';
 
 export default function CreateRoomPage() {
   const { data: session } = useSession();
@@ -13,6 +14,16 @@ export default function CreateRoomPage() {
   const [url, setUrl] = useState('');
   const [ottPlatform, setOttPlatform] = useState('netflix');
   const [loading, setLoading] = useState(false);
+  const [formatValidation, setFormatValidation] = useState<{ supported: boolean; message: string } | null>(null);
+
+  const validateVideoUrl = (urlString: string): void => {
+    if (!urlString) {
+      setFormatValidation(null);
+      return;
+    }
+    const result = validateVideoFormat(urlString);
+    setFormatValidation(result);
+  };
 
   if (!session?.user) {
     return (
@@ -75,7 +86,7 @@ export default function CreateRoomPage() {
           </label>
           <select className="select" value={sourceType} onChange={(e) => setSourceType(e.target.value as 'youtube' | 'local' | 'ott-sync')}>
             <option value="youtube">YouTube video</option>
-            <option value="local">MP4 / local link</option>
+            <option value="local">Video file (MP4, WebM, MOV, and more)</option>
             <option value="ott-sync">OTT sync</option>
           </select>
         </div>
@@ -102,9 +113,35 @@ export default function CreateRoomPage() {
             <input
               className="input"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (sourceType === 'local' && e.target.value) {
+                  validateVideoUrl(e.target.value);
+                } else {
+                  setFormatValidation(null);
+                }
+              }}
               placeholder={sourceType === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/video.mp4'}
             />
+            {sourceType === 'local' && (
+              <>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.4' }}>
+                  <strong>Browser-native formats:</strong> MP4, WebM, Ogg, MOV, AVI<br/>
+                  <strong>May require conversion:</strong> MKV, FLV, WMV (→ convert to MP4 using ffmpeg/HandBrake)<br/>
+                  <strong>Note:</strong> Ensure the video URL is publicly accessible.
+                </p>
+                {formatValidation && (
+                  <p style={{
+                    fontSize: '0.75rem',
+                    color: formatValidation.supported ? 'var(--text-secondary)' : '#ff6b6b',
+                    marginTop: '8px',
+                    fontWeight: formatValidation.supported ? 400 : 500
+                  }}>
+                    {formatValidation.message}
+                  </p>
+                )}
+              </>
+            )}
           </div>
         )}
 
