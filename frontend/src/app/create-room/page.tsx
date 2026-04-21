@@ -36,7 +36,7 @@ export default function CreateRoomPage() {
       setLoading(true);
       const payload = {
         name,
-        hostUserId: session.user.email || session.user.name || 'host',
+        ownerUserId: session.user.email || session.user.name || 'host',
         sourceType,
         sourceData:
           sourceType === 'ott-sync'

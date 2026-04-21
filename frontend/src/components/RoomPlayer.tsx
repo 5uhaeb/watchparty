@@ -2,16 +2,21 @@
 
 import { useEffect, useRef } from 'react';
 import { socket } from '@/lib/socket';
+import { canDo, RoomState } from '@/lib/permissions';
 import YouTubePlayer from './YouTubePlayer';
 
 export default function RoomPlayer({ 
   roomCode, 
   videoUrl, 
-  sourceType = 'youtube' 
+  sourceType = 'youtube',
+  roomState,
+  userId
 }: { 
   roomCode: string; 
   videoUrl?: string;
   sourceType?: string;
+  roomState?: RoomState | null;
+  userId?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -22,24 +27,27 @@ export default function RoomPlayer({
     if (!video) return;
 
     const onPlay = () => {
-      socket.emit('playback:update', {
-        roomCode,
-        playback: { isPlaying: true, currentTime: video.currentTime }
-      });
+      if (roomState && userId && !canDo(roomState, userId, 'playPause')) {
+        socket.emit('player:play', { positionSec: video.currentTime });
+        return;
+      }
+      socket.emit('player:play', { positionSec: video.currentTime });
     };
 
     const onPause = () => {
-      socket.emit('playback:update', {
-        roomCode,
-        playback: { isPlaying: false, currentTime: video.currentTime }
-      });
+      if (roomState && userId && !canDo(roomState, userId, 'playPause')) {
+        socket.emit('player:pause', { positionSec: video.currentTime });
+        return;
+      }
+      socket.emit('player:pause', { positionSec: video.currentTime });
     };
 
     const onSeeked = () => {
-      socket.emit('playback:update', {
-        roomCode,
-        playback: { isPlaying: !video.paused, currentTime: video.currentTime }
-      });
+      if (roomState && userId && !canDo(roomState, userId, 'seek')) {
+        socket.emit('player:seek', { positionSec: video.currentTime });
+        return;
+      }
+      socket.emit('player:seek', { positionSec: video.currentTime });
     };
 
     const onRemoteUpdate = (playback: { isPlaying: boolean; currentTime: number }) => {
@@ -61,7 +69,10 @@ export default function RoomPlayer({
       video.removeEventListener('seeked', onSeeked);
       socket.off('playback:update', onRemoteUpdate);
     };
-  }, [roomCode, videoUrl, sourceType]);
+  }, [roomCode, videoUrl, sourceType, roomState, userId]);
+
+  const canControlPlayback = roomState && userId ? canDo(roomState, userId, 'playPause') : true;
+  const canSeek = roomState && userId ? canDo(roomState, userId, 'seek') : true;
 
   if (!videoUrl) {
     return (
@@ -75,12 +86,23 @@ export default function RoomPlayer({
   }
 
   if (sourceType === 'youtube') {
-    return <YouTubePlayer roomCode={roomCode} videoUrl={videoUrl} />;
+    return <YouTubePlayer roomCode={roomCode} videoUrl={videoUrl} roomState={roomState} userId={userId} />;
   }
 
   return (
     <div className="card glass" style={{ padding: 0, overflow: 'hidden' }}>
-      <video ref={videoRef} src={videoUrl} controls width="100%" style={{ display: 'block' }} />
+      <video 
+        ref={videoRef} 
+        src={videoUrl} 
+        controls={canControlPlayback && canSeek} 
+        width="100%" 
+        style={{ display: 'block' }} 
+      />
+      {!canControlPlayback && (
+        <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(0,0,0,0.8)', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
+          Playback controls disabled
+        </div>
+      )}
     </div>
   );
 }

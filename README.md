@@ -18,18 +18,15 @@ For Netflix, Prime Video, and Hotstar, this project is designed for **sync only*
 
 ```bash
 watchparty-starter/
-  apps/
-    web/
-    server/
-  packages/
-    shared/
+  backend/   # Node/Express API + Socket.io
+  frontend/  # Next.js Web App
 ```
 
 ## Run locally
 
 ### 1. Backend
 ```bash
-cd apps/server
+cd backend
 npm install
 cp .env.example .env
 npm run dev
@@ -37,39 +34,33 @@ npm run dev
 
 ### 2. Frontend
 ```bash
-cd apps/web
+cd frontend
 npm install
 cp .env.example .env.local
 npm run dev
 ```
 
-## Environment setup
+## Production Deployment guide (CRITICAL)
 
-### Backend `.env`
-```env
-PORT=5000
-CLIENT_URL=http://localhost:3000
-MONGODB_URI=your_mongodb_atlas_uri
-JWT_SECRET=replace_me
-```
+When deploying to Render/Vercel, you **must** update your environment variables to point to your live URLs.
 
-### Frontend `.env.local`
-```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=replace_me
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-NEXT_PUBLIC_API_URL=http://localhost:5000/api
-NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
-```
+### Backend (Render)
+- `CLIENT_URL`: `https://your-frontend.vercel.app` (The URL where your Vercel app is live)
+- `MONGODB_URI`: Ensure your Render IP is whitelisted in MongoDB Atlas.
 
-## Vercel + Render deployment
-- Deploy `apps/web` to Vercel
-- Deploy `apps/server` to Render
-- Point the frontend env vars to your Render backend URL
-- Allow CORS for the frontend URL in backend env
+### Frontend (Vercel)
+- `NEXTAUTH_URL`: `https://your-frontend.vercel.app` (Matching your actual domain)
+- `NEXT_PUBLIC_API_URL`: `https://your-backend.onrender.com/api`
+- `NEXT_PUBLIC_SOCKET_URL`: `https://your-backend.onrender.com`
+
+---
 
 ## What is included
+- Google login (via NextAuth)
+- Premium Dashboard
+- Room creation & Sync
+- Real-time Chat
+- YouTube & Local Sync
 - Google login
 - dashboard
 - create room page

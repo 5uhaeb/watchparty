@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
+import { canDo, RoomState } from '@/lib/permissions';
 
 declare global {
   interface Window {
@@ -10,7 +11,7 @@ declare global {
   }
 }
 
-export default function YouTubePlayer({ roomCode, videoUrl }: { roomCode: string; videoUrl: string }) {
+export default function YouTubePlayer({ roomCode, videoUrl, roomState, userId }: { roomCode: string; videoUrl: string; roomState?: RoomState | null; userId?: string }) {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isApiReady, setIsApiReady] = useState(false);
@@ -37,11 +38,14 @@ export default function YouTubePlayer({ roomCode, videoUrl }: { roomCode: string
   useEffect(() => {
     if (!isApiReady || !videoId || !containerRef.current) return;
 
+    const canControlPlayback = roomState && userId ? canDo(roomState, userId, 'playPause') : true;
+    const canSeek = roomState && userId ? canDo(roomState, userId, 'seek') : true;
+
     playerRef.current = new window.YT.Player(containerRef.current, {
       videoId: videoId,
       playerVars: {
         autoplay: 0,
-        controls: 1,
+        controls: canControlPlayback && canSeek ? 1 : 0,
         rel: 0,
         modestbranding: 1
       },
@@ -49,14 +53,14 @@ export default function YouTubePlayer({ roomCode, videoUrl }: { roomCode: string
         onStateChange: (event: any) => {
           const state = event.data;
           // YT.PlayerState.PLAYING = 1, PAUSED = 2, BUFFERING = 3
-          if (state === 1 || state === 2) {
-            socket.emit('playback:update', {
-              roomCode,
-              playback: {
-                isPlaying: state === 1,
-                currentTime: playerRef.current.getCurrentTime()
-              }
-            });
+          if (state === 1) {
+            if (canControlPlayback) {
+              socket.emit('player:play', { positionSec: playerRef.current.getCurrentTime() });
+            }
+          } else if (state === 2) {
+            if (canControlPlayback) {
+              socket.emit('player:pause', { positionSec: playerRef.current.getCurrentTime() });
+            }
           }
         }
       }
@@ -67,7 +71,9 @@ export default function YouTubePlayer({ roomCode, videoUrl }: { roomCode: string
 
       const currentTime = playerRef.current.getCurrentTime();
       if (Math.abs(currentTime - playback.currentTime) > 2) {
-        playerRef.current.seekTo(playback.currentTime, true);
+        if (canSeek) {
+          playerRef.current.seekTo(playback.currentTime, true);
+        }
       }
 
       if (playback.isPlaying) {
@@ -85,11 +91,21 @@ export default function YouTubePlayer({ roomCode, videoUrl }: { roomCode: string
         playerRef.current.destroy();
       }
     };
-  }, [isApiReady, videoId, roomCode]);
+  }, [isApiReady, videoId, roomCode, roomState, userId]);
+
+  const canControlPlayback = roomState && userId ? canDo(roomState, userId, 'playPause') : true;
+  const canSeek = roomState && userId ? canDo(roomState, userId, 'seek') : true;
 
   return (
-    <div className="card glass" style={{ padding: '0', overflow: 'hidden', aspectRatio: '16/9' }}>
+    <div className="card glass" style={{ padding: '0', overflow: 'hidden', aspectRatio: '16/9', position: 'relative' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {(!canControlPlayback || !canSeek) && (
+        <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(0,0,0,0.8)', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
+          {!canControlPlayback && 'Playback controls disabled'}
+          {!canSeek && !canControlPlayback && ', '}
+          {!canSeek && 'Seek disabled'}
+        </div>
+      )}
     </div>
   );
 }

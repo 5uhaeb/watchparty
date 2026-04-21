@@ -4,7 +4,20 @@ const roomSchema = new mongoose.Schema(
   {
     code: { type: String, required: true, unique: true },
     name: { type: String, required: true },
-    hostUserId: { type: String, required: true },
+    ownerUserId: { type: String, required: true },
+    adminUserIds: [{ type: String }],
+    permissions: {
+      playPause: { type: String, enum: ['owner', 'admins', 'everyone'], default: 'admins' },
+      seek: { type: String, enum: ['owner', 'admins', 'everyone'], default: 'admins' },
+      changeSource: { type: String, enum: ['owner', 'admins', 'everyone'], default: 'admins' },
+      chat: { type: String, enum: ['owner', 'admins', 'everyone'], default: 'everyone' },
+      invite: { type: String, enum: ['owner', 'admins', 'everyone'], default: 'admins' },
+      kickMute: { type: String, enum: ['owner', 'admins'], default: 'admins' },
+      managePerms: { type: String, enum: ['owner', 'admins'], default: 'owner' },
+      manageAdmins: { type: String, enum: ['owner', 'admins'], default: 'owner' }
+    },
+    mutedUserIds: [{ type: String }],
+    bannedUserIds: [{ type: String }],
     sourceType: {
       type: String,
       enum: ['youtube', 'local', 'ott-sync'],
