@@ -7,15 +7,19 @@ const roomSchema = new mongoose.Schema(
     hostUserId: { type: String, required: true },
     sourceType: {
       type: String,
-      enum: ['youtube', 'local', 'ott-sync'],
+      enum: ['youtube', 'local', 'localStream', 'ott-sync'],
       default: 'youtube'
     },
     sourceData: {
       url: String,
       fileName: String,
+      fileSize: Number,
       fileFormat: String,  // e.g., 'mp4', 'webm', 'mkv', 'avi'
       mimeType: String,    // e.g., 'video/mp4'
-      ottPlatform: String
+      ottPlatform: String,
+      sizeBytes: Number,       // localStream: file size
+      durationSec: Number,     // localStream: video duration
+      hostSocketId: String     // localStream: WebRTC signaling address
     },
     playback: {
       isPlaying: { type: Boolean, default: false },

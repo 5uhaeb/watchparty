@@ -127,7 +127,7 @@ export default function VideoCallPanel({
         if (prev.some(p => p.userId === userId)) return prev;
         return [...prev, { userId, name, stream: null }];
       });
-      // We are the existing user — send offer to the newcomer
+      // Existing users send an offer to the newcomer.
       createPC(userId, true);
     };
 

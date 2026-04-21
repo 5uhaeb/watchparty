@@ -34,6 +34,49 @@ function canControlRoom(room, userId) {
   return participant || room.hostUserId === userId;
 }
 
+function isRoomMember(room, userId) {
+  if (!room || !userId) return false;
+  return (
+    room.hostUserId === userId ||
+    room.participants?.some((p) => p.userId === userId || p.name === userId)
+  );
+}
+
+function isValidLocalStreamFileName(fileName) {
+  return typeof fileName === 'string' && fileName.trim() && !/[/\\:]/.test(fileName);
+}
+
+function emitSourceChanged(io, roomCode, room, source = { type: room.sourceType, data: room.sourceData }) {
+  io.to(roomCode).emit('room:state', { room });
+  io.to(roomCode).emit('source:changed', { source, room });
+  io.to(roomCode).emit('room:sourceChanged', { source, room });
+}
+
+async function clearLocalStreamIfHostedBy(io, roomCode, socketId, updatedBy = 'unknown') {
+  if (!roomCode || !socketId) return null;
+
+  const room = await Room.findOne({ code: roomCode, isActive: true });
+  if (
+    !room ||
+    room.sourceType !== 'localStream' ||
+    room.sourceData?.hostSocketId !== socketId
+  ) {
+    return room;
+  }
+
+  room.sourceType = 'youtube';
+  room.sourceData = {};
+  room.playback = {
+    isPlaying: false,
+    currentTime: 0,
+    updatedAt: new Date(),
+    updatedBy,
+  };
+  await room.save();
+  emitSourceChanged(io, roomCode, room, null);
+  return room;
+}
+
 function consumeBucket(socket, name, capacity, refillMs) {
   socket.rateBuckets ||= {};
   const now = Date.now();
@@ -359,7 +402,8 @@ function registerRoomSocket(io, socket) {
   socket.on('source:change', async ({ roomCode, userId, sourceType, sourceData = {} }) => {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
-    if (!['youtube', 'local', 'ott-sync'].includes(sourceType)) return;
+    if (!['youtube', 'local', 'localStream', 'ott-sync'].includes(sourceType)) return;
+    if (sourceData.fileName && !isValidLocalStreamFileName(sourceData.fileName)) return;
 
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     if (!room || room.hostUserId !== actorUserId) return;
@@ -374,12 +418,100 @@ function registerRoomSocket(io, socket) {
     };
     await room.save();
 
-    io.to(targetRoomCode).emit('room:state', { room });
-    io.to(targetRoomCode).emit('source:changed', {
-      source: { type: room.sourceType, data: room.sourceData },
-      room,
+    emitSourceChanged(io, targetRoomCode, room);
+  });
+
+  socket.on('room:startLocalStream', async ({ fileName, sizeBytes, durationSec }) => {
+    const targetRoomCode = socket.roomCode;
+    if (!targetRoomCode) return;
+
+    if (!isValidLocalStreamFileName(fileName)) {
+      socket.emit('error:validation', { message: 'Invalid fileName' });
+      return;
+    }
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room) return;
+
+    const actorUserId = getUserId(socket);
+    if (room.hostUserId !== actorUserId) return;
+
+    room.sourceType = 'localStream';
+    room.sourceData = {
+      fileName: fileName.trim(),
+      sizeBytes: Number(sizeBytes) || 0,
+      durationSec: Number(durationSec) || 0,
+      hostSocketId: socket.id,
+    };
+    room.playback = {
+      isPlaying: false,
+      currentTime: 0,
+      updatedAt: new Date(),
+      updatedBy: actorUserId || 'unknown',
+    };
+    await room.save();
+
+    emitSourceChanged(io, targetRoomCode, room);
+  });
+
+  socket.on('room:stopLocalStream', async () => {
+    const targetRoomCode = socket.roomCode;
+    if (!targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room) return;
+
+    const actorUserId = getUserId(socket);
+    if (room.hostUserId !== actorUserId) return;
+    if (room.sourceType !== 'localStream') return;
+
+    room.sourceType = 'youtube';
+    room.sourceData = {};
+    room.playback = {
+      isPlaying: false,
+      currentTime: 0,
+      updatedAt: new Date(),
+      updatedBy: actorUserId || 'unknown',
+    };
+    await room.save();
+
+    emitSourceChanged(io, targetRoomCode, room, null);
+  });
+
+  socket.on('webrtc:viewerReady', async () => {
+    const targetRoomCode = socket.roomCode;
+    if (!targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    const actorUserId = getUserId(socket);
+    if (!room || !isRoomMember(room, actorUserId)) return;
+    if (room.sourceType !== 'localStream' || !room.sourceData?.hostSocketId) return;
+    if (room.sourceData.hostSocketId === socket.id) return;
+
+    io.to(room.sourceData.hostSocketId).emit('webrtc:viewerReady', {
+      viewerSocketId: socket.id,
     });
   });
+
+  socket.on('webrtc:signal', async ({ toSocketId, data }) => {
+    if (!toSocketId || !data) return;
+    const targetRoomCode = socket.roomCode;
+    if (!targetRoomCode) return;
+
+    const targetSocket = io.sockets.sockets.get(toSocketId);
+    if (!targetSocket || targetSocket.roomCode !== targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    const actorUserId = getUserId(socket);
+    if (!room || !isRoomMember(room, actorUserId)) return;
+    if (room.sourceType !== 'localStream') return;
+
+    io.to(toSocketId).emit('webrtc:signal', {
+      fromSocketId: socket.id,
+      data,
+    });
+  });
+
 
   // anyone in the room can drive sync now
   socket.on('playback:update', async ({ roomCode, playback, userId }) => {
@@ -468,6 +600,7 @@ function registerRoomSocket(io, socket) {
     if (!socket.roomCode || !socket.userData) return;
 
     const { roomCode, userData } = socket;
+    await clearLocalStreamIfHostedBy(io, roomCode, socket.id, getUserId(socket) || 'unknown');
     socket.leave(roomCode);
     socket.roomCode = null;
 
@@ -504,12 +637,13 @@ function registerRoomSocket(io, socket) {
     if (!socket.roomCode || !socket.userData) return;
 
     const { roomCode, userData } = socket;
-
     if (socket.callUserId) {
       socket.to(roomCode).emit('call:user-left', {
         userId: socket.callUserId,
       });
     }
+
+    await clearLocalStreamIfHostedBy(io, roomCode, socket.id, getUserId(socket) || 'unknown');
 
     const room = await Room.findOneAndUpdate(
       { code: roomCode },

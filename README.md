@@ -11,8 +11,26 @@ A simple full-stack watch party starter with:
 This starter supports:
 - YouTube links
 - local file playback metadata sync
+- local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
 
 For Netflix, Prime Video, and Hotstar, this project is designed for **sync only**. It does not capture or rebroadcast protected streams. A browser extension is the practical next step for full remote-control sync on those sites.
+
+## Local file streaming
+
+Hosts can choose **Stream local file** inside a room. The file stays on the host device: the backend only relays WebRTC SDP and ICE messages over Socket.IO, and no media bytes are uploaded to the server.
+
+The browser must be able to decode the selected file before it can stream it. MP4/WebM/MOV are generally reliable in Chromium-based browsers; MKV/AVI support depends on the codecs inside the file and the browser/device.
+
+For WebRTC networking, the frontend reads:
+
+```env
+NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
+NEXT_PUBLIC_TURN_URL=
+NEXT_PUBLIC_TURN_USER=
+NEXT_PUBLIC_TURN_CRED=
+```
+
+Without TURN, local streaming can fail across stricter NATs or mobile networks. Set TURN credentials for cross-network rooms, such as a laptop on WiFi streaming to a phone on 4G.
 
 ## Project structure
 
@@ -61,6 +79,10 @@ GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
+NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
+NEXT_PUBLIC_TURN_URL=
+NEXT_PUBLIC_TURN_USER=
+NEXT_PUBLIC_TURN_CRED=
 ```
 
 ## Vercel + Render deployment

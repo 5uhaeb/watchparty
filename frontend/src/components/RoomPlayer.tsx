@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
+import LocalStreamPlayer from '@/components/LocalStreamPlayer';
 import LocalFilePlayer from '@/players/LocalFilePlayer';
 import YouTubePlayer from '@/players/YouTubePlayer';
 import type { PlayerAdapter, PlayerState } from '@/players/types';
@@ -10,8 +11,11 @@ interface Props {
   roomCode: string;
   videoUrl?: string;
   sourceType?: string;
+  sourceData?: any;
+  localStreamFile?: File | null;
   isHost?: boolean;
   currentUserId?: string;
+  onLocalStreamStopped?: () => void;
 }
 
 type TimedPlayback = {
@@ -23,8 +27,11 @@ export default function RoomPlayer({
   roomCode,
   videoUrl,
   sourceType = 'youtube',
+  sourceData,
+  localStreamFile,
   isHost = false,
   currentUserId,
+  onLocalStreamStopped,
 }: Props) {
   const playerRef = useRef<PlayerAdapter | null>(null);
   const isApplyingRemoteRef = useRef(false);
@@ -93,6 +100,8 @@ export default function RoomPlayer({
   );
 
   useEffect(() => {
+    if (adapterType === 'localStream') return;
+
     const onPlay = (payload: TimedPlayback) => {
       if (!isHost) applyPlay(payload);
     };
@@ -163,10 +172,10 @@ export default function RoomPlayer({
       socket.off('reconnect:sync', onReconnectSync);
       socket.off('player:state', onPlayerState);
     };
-  }, [applyPause, applyPlay, applySeek, isHost, withRemoteGuard]);
+  }, [adapterType, applyPause, applyPlay, applySeek, isHost, withRemoteGuard]);
 
   useEffect(() => {
-    if (!isHost) return;
+    if (!isHost || adapterType === 'localStream') return;
 
     const intervalId = window.setInterval(() => {
       socket.emit('player:heartbeat', {
@@ -176,10 +185,10 @@ export default function RoomPlayer({
     }, 3000);
 
     return () => window.clearInterval(intervalId);
-  }, [currentPosition, isHost, roomCode]);
+  }, [adapterType, currentPosition, isHost, roomCode]);
 
   useEffect(() => {
-    if (!isHost) return;
+    if (!isHost || adapterType === 'localStream') return;
 
     const intervalId = window.setInterval(() => {
       if (!playerRef.current || isApplyingRemoteRef.current) return;
@@ -200,13 +209,13 @@ export default function RoomPlayer({
     }, 500);
 
     return () => window.clearInterval(intervalId);
-  }, [currentUserId, isHost, roomCode]);
+  }, [adapterType, currentUserId, isHost, roomCode]);
 
   const handleStateChange = (state: PlayerState) => {
     const previousState = lastStateRef.current;
     lastStateRef.current = state;
 
-    if (!isHost || isApplyingRemoteRef.current) return;
+    if (!isHost || adapterType === 'localStream' || isApplyingRemoteRef.current) return;
 
     const positionSec = currentPosition();
     if (state === 'playing' && previousState !== 'playing') {
@@ -243,25 +252,51 @@ export default function RoomPlayer({
     }
   };
 
-  if (adapterType === 'file' && !effectiveUrl) {
+  if (adapterType === 'localStream' || (isHost && localStreamFile)) {
     return (
-      <div className="player-stack">
-        <h3>Load Local Video</h3>
-        <p>
+      <LocalStreamPlayer
+        roomCode={roomCode}
+        isHost={isHost}
+        file={isHost ? localStreamFile : null}
+        sourceData={sourceData}
+        onStopped={onLocalStreamStopped}
+      />
+    );
+  }
+
+  if (adapterType === 'file' && !effectiveUrl) {
+    const fileName = sourceData?.fileName;
+    const fileSizeMB = sourceData?.fileSize ? (sourceData.fileSize / 1024 / 1024).toFixed(1) : null;
+
+    return (
+      <div className="card glass player-stack" style={{ textAlign: 'center', padding: '40px' }}>
+        <h3 style={{ margin: '0 0 12px' }}>Load Local Video</h3>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
           {isHost
-            ? 'Pick a local file. Playback changes will sync to everyone else.'
-            : 'Load the same local file as the host and it will sync.'}
+            ? fileName
+              ? `You selected "${fileName}". Please pick it again to start playing.`
+              : 'Pick a local file. Playback changes will sync to everyone else.'
+            : fileName
+              ? <>Host is watching: <strong style={{ color: 'var(--primary)' }}>{fileName}</strong> {fileSizeMB && `(${fileSizeMB} MB)`}. <br/> Please select this file from your computer to join sync.</>
+              : 'Wait for the host to pick a local file or select one yourself if you have it.'}
         </p>
-        <input
-          type="file"
-          accept="video/*"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setLocalBlobUrl(URL.createObjectURL(file));
-            setLocalFileName(file.name);
-          }}
-        />
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <input
+            id="local-file-input"
+            type="file"
+            accept="video/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setLocalBlobUrl(URL.createObjectURL(file));
+              setLocalFileName(file.name);
+            }}
+          />
+          <button className="button" onClick={() => document.getElementById('local-file-input')?.click()}>
+            Select Local File
+          </button>
+        </div>
       </div>
     );
   }

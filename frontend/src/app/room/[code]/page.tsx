@@ -10,6 +10,22 @@ import RoomPlayer from '@/components/RoomPlayer';
 import UserList from '@/components/UserList';
 import VideoCallPanel from '@/components/VideoCallPanel';
 
+type SourceType = 'youtube' | 'local' | 'localStream' | 'ott-sync';
+
+function prettySize(bytes?: number) {
+  if (!bytes) return 'unknown size';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function prettyDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return 'unknown duration';
+  const total = Math.round(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
@@ -24,16 +40,21 @@ export default function RoomPage() {
   const [friends, setFriends] = useState<any[]>([]);
   const [inviteMessage, setInviteMessage] = useState('');
   const [showSourceModal, setShowSourceModal] = useState(false);
-  const [sourceTypeDraft, setSourceTypeDraft] = useState<'youtube' | 'local' | 'ott-sync'>('youtube');
+  const [sourceTypeDraft, setSourceTypeDraft] = useState<SourceType>('youtube');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
   const [ottPlatformDraft, setOttPlatformDraft] = useState('netflix');
   const [sourceMessage, setSourceMessage] = useState('');
+  const [localFileDraft, setLocalFileDraft] = useState<{ name: string; size: number } | null>(null);
+  const [localStreamFileDraft, setLocalStreamFileDraft] = useState<File | null>(null);
+  const [localStreamFile, setLocalStreamFile] = useState<File | null>(null);
+  const [streamNotice, setStreamNotice] = useState('');
 
   const userEmail = session?.user?.email ?? '';
   const userName = session?.user?.name ?? 'Guest';
   const isHost = !!room && room.hostUserId === userEmail;
   const roomSourceType = room?.source?.type || room?.sourceType;
-  const roomSourceUrl = room?.source?.url || room?.sourceData?.url;
+  const roomSourceData = room?.source?.data || room?.sourceData;
+  const roomSourceUrl = room?.source?.url || roomSourceData?.url;
 
   useEffect(() => {
     if (!code) return;
@@ -63,6 +84,12 @@ export default function RoomPage() {
       router.push('/dashboard');
     };
     const handleSourceChanged = (payload: any) => {
+      if (payload.source === null) {
+        setStreamNotice('Host ended the stream.');
+        setLocalStreamFile(null);
+      } else {
+        setStreamNotice('');
+      }
       if (payload.room) setRoom(payload.room);
       socket.emit('player:state', { roomCode: code });
     };
@@ -89,9 +116,12 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (!room) return;
-    setSourceTypeDraft((roomSourceType || 'youtube') as 'youtube' | 'local' | 'ott-sync');
+    setSourceTypeDraft((roomSourceType || 'youtube') as SourceType);
     setSourceUrlDraft(roomSourceUrl || '');
     setOttPlatformDraft(room.sourceData?.ottPlatform || 'netflix');
+    if (roomSourceType !== 'localStream') {
+      setLocalStreamFile(null);
+    }
   }, [room, roomSourceType, roomSourceUrl]);
 
   const copyInviteLink = () => {
@@ -154,9 +184,22 @@ export default function RoomPage() {
   const saveSource = async () => {
     setSourceMessage('');
 
-    const sourceData =
+    if (sourceTypeDraft === 'localStream') {
+      if (!localStreamFileDraft) {
+        setSourceMessage('Choose a local video file to stream.');
+        return;
+      }
+      setLocalStreamFile(localStreamFileDraft);
+      setStreamNotice('');
+      setShowSourceModal(false);
+      return;
+    }
+
+    const sourceData: any =
       sourceTypeDraft === 'ott-sync'
         ? { ottPlatform: ottPlatformDraft }
+        : sourceTypeDraft === 'local'
+        ? { url: sourceUrlDraft.trim(), fileName: localFileDraft?.name, fileSize: localFileDraft?.size }
         : { url: sourceUrlDraft.trim() };
 
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}/source`, {
@@ -178,6 +221,7 @@ export default function RoomPage() {
 
     const updatedRoom = await res.json();
     setRoom(updatedRoom);
+    setLocalStreamFile(null);
     setShowSourceModal(false);
   };
 
@@ -195,7 +239,7 @@ export default function RoomPage() {
 
   return (
     <div className="room-page">
-      {/* ── Room Header ──────────────────────────────────────────────────────── */}
+      {/* Room Header */}
       <div className="card glass room-header">
         <div className="room-title-block">
           <h1 style={{ margin: '0 0 4px', fontSize: '1.4rem' }}>{room.name}</h1>
@@ -243,7 +287,7 @@ export default function RoomPage() {
         </div>
       </div>
 
-      {/* ── Main Layout ───────────────────────────────────────────────────────── */}
+      {/* Main Layout */}
       <div className="row">
         {/* Left column: player */}
         <div className="content-column">
@@ -251,8 +295,14 @@ export default function RoomPage() {
             roomCode={code}
             videoUrl={roomSourceUrl}
             sourceType={roomSourceType}
+            sourceData={roomSourceData}
+            localStreamFile={localStreamFile}
             isHost={isHost}
             currentUserId={userEmail}
+            onLocalStreamStopped={() => {
+              setLocalStreamFile(null);
+              setStreamNotice('Host ended the stream.');
+            }}
           />
 
           {/* OTT note / room details */}
@@ -260,11 +310,20 @@ export default function RoomPage() {
             <div className="card glass">
               <h3 style={{ margin: '0 0 8px' }}>Now Watching</h3>
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
-                {roomSourceUrl || room.sourceData?.fileName || 'Local / OTT Sync'}
+                {roomSourceType === 'localStream'
+                  ? `${roomSourceData?.fileName || 'Local stream'} (${prettySize(roomSourceData?.sizeBytes || roomSourceData?.fileSize)}, ${prettyDuration(roomSourceData?.durationSec)})`
+                  : roomSourceUrl || roomSourceData?.fileName || streamNotice || 'Local / OTT Sync'}
               </p>
+              {streamNotice && (
+                <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  {streamNotice}
+                </p>
+              )}
               {!isHost && (
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  The host controls playback. Heartbeats keep this player in sync.
+                  {roomSourceType === 'localStream'
+                    ? 'The stream is controlled by the host.'
+                    : 'The host controls playback. Heartbeats keep this player in sync.'}
                 </p>
               )}
             </div>
@@ -291,6 +350,7 @@ export default function RoomPage() {
             hostUserId={room.hostUserId}
             currentUserEmail={userEmail}
             roomCode={code}
+            isStreaming={roomSourceType === 'localStream'}
           />
         </div>
       </div>
@@ -342,8 +402,9 @@ export default function RoomPage() {
             <div style={{ display: 'grid', gap: 14 }}>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Source type</span>
-                <select className="select" value={sourceTypeDraft} onChange={(event) => setSourceTypeDraft(event.target.value as 'youtube' | 'local' | 'ott-sync')}>
+                <select className="select" value={sourceTypeDraft} onChange={(event) => setSourceTypeDraft(event.target.value as SourceType)}>
                   <option value="youtube">YouTube Video</option>
+                  <option value="localStream">Stream local file</option>
                   <option value="local">MP4 / Local Link</option>
                   <option value="ott-sync">OTT Sync</option>
                 </select>
@@ -358,22 +419,71 @@ export default function RoomPage() {
                     <option value="hotstar">Hotstar</option>
                   </select>
                 </label>
+              ) : sourceTypeDraft === 'localStream' ? (
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Stream local file</span>
+                  <input
+                    type="file"
+                    accept="video/*,.mkv,.avi,.mov,.m4v,.webm,.ogv"
+                    className="input"
+                    style={{ padding: '8px' }}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] || null;
+                      setLocalStreamFileDraft(file);
+                      setSourceMessage('');
+                    }}
+                  />
+                  {localStreamFileDraft && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--primary)', overflowWrap: 'anywhere' }}>
+                      Selected: {localStreamFileDraft.name} ({prettySize(localStreamFileDraft.size)})
+                    </div>
+                  )}
+                </label>
+              ) : sourceTypeDraft === 'local' ? (
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Local File</span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="input"
+                      style={{ padding: '8px' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setLocalFileDraft({ name: file.name, size: file.size });
+                      }}
+                    />
+                    {localFileDraft && (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>
+                        Selected: {localFileDraft.name} ({(localFileDraft.size / 1024 / 1024).toFixed(1)} MB)
+                      </div>
+                    )}
+                  </label>
+                  <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>OR</div>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Video URL (MP4/HLS)</span>
+                    <input
+                      className="input"
+                      value={sourceUrlDraft}
+                      onChange={(event) => setSourceUrlDraft(event.target.value)}
+                      placeholder="https://example.com/video.mp4"
+                    />
+                  </label>
+                </div>
               ) : (
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                    {sourceTypeDraft === 'youtube' ? 'YouTube URL' : 'Video URL'}
-                  </span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>YouTube URL</span>
                   <input
                     className="input"
                     value={sourceUrlDraft}
                     onChange={(event) => setSourceUrlDraft(event.target.value)}
-                    placeholder={sourceTypeDraft === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/video.mp4'}
+                    placeholder="https://www.youtube.com/watch?v=..."
                   />
                 </label>
               )}
 
               <button className="button" onClick={saveSource}>
-                Save Source
+                {sourceTypeDraft === 'localStream' ? 'Start streaming' : 'Save Source'}
               </button>
               {sourceMessage && <p style={{ margin: 0, color: '#ef4444' }}>{sourceMessage}</p>}
             </div>

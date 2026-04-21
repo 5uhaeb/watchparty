@@ -73,6 +73,9 @@ router.post('/', async (req, res) => {
     if (!name || !name.trim()) return res.status(400).json({ message: 'name is required' });
     if (!hostUserId) return res.status(400).json({ message: 'hostUserId is required' });
     if (name.trim().length > 80) return res.status(400).json({ message: 'name too long' });
+    if (sourceData.fileName && /[/\\:]/.test(sourceData.fileName)) {
+      return res.status(400).json({ message: 'fileName must not contain path separators' });
+    }
 
     // Extract format info for local/file videos
     if ((sourceType === 'local' || sourceType === 'file') && sourceData.url) {
@@ -179,8 +182,13 @@ router.patch('/:id/source', async (req, res) => {
     const userId = getUserId(req);
     const { sourceType, sourceData = {} } = req.body;
     if (!userId) return res.status(400).json({ message: 'userId is required' });
-    if (!['youtube', 'local', 'ott-sync'].includes(sourceType)) {
+    if (!['youtube', 'local', 'localStream', 'ott-sync'].includes(sourceType)) {
       return res.status(400).json({ message: 'Invalid sourceType' });
+    }
+
+    // Reject filenames containing path separators or colons (security)
+    if (sourceData.fileName && /[/\\:]/.test(sourceData.fileName)) {
+      return res.status(400).json({ message: 'fileName must not contain path separators' });
     }
 
     const room = await findRoomByIdOrCode(req.params.id);
@@ -199,6 +207,10 @@ router.patch('/:id/source', async (req, res) => {
 
     req.app.get('io')?.to(room.code).emit('room:state', { room });
     req.app.get('io')?.to(room.code).emit('source:changed', {
+      source: { type: room.sourceType, data: room.sourceData },
+      room
+    });
+    req.app.get('io')?.to(room.code).emit('room:sourceChanged', {
       source: { type: room.sourceType, data: room.sourceData },
       room
     });

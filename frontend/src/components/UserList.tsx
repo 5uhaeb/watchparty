@@ -12,12 +12,14 @@ export default function UserList({
   initialParticipants = [],
   hostUserId,
   currentUserEmail,
-  roomCode
+  roomCode,
+  isStreaming = false
 }: {
   initialParticipants?: Participant[];
   hostUserId?: string;
   currentUserEmail?: string;
   roomCode?: string;
+  isStreaming?: boolean;
 }) {
   const [participants, setParticipants] = useState<Participant[]>(initialParticipants);
   const isHost = !!hostUserId && hostUserId === currentUserEmail;
@@ -81,10 +83,15 @@ export default function UserList({
                       Host
                     </span>
                   )}
+                  {isThisHost && isStreaming && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--green-ink)', background: 'var(--green)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>
+                      Streaming
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Kick button — visible to host only, not for self */}
+              {/* Kick button visible to host only, not for self */}
               {isHost && !isMe && (
                 <button
                   onClick={() => kickUser(user.name)}
