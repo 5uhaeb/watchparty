@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { signIn, signOut, useSession } from 'next-auth/react';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -14,12 +15,16 @@ export default function Navbar() {
       
       <div className="nav-links">
         <Link href="/dashboard">Dashboard</Link>
+        <Link href="/friends">Friends</Link>
         <Link href="/create-room">Create Room</Link>
         
         {session?.user ? (
-          <button className="button button-secondary" onClick={() => signOut()}>
-            Logout
-          </button>
+          <>
+            <NotificationBell />
+            <button className="button button-secondary" onClick={() => signOut()}>
+              Logout
+            </button>
+          </>
         ) : (
           <button className="button" onClick={() => signIn('google')}>
             Login with Google

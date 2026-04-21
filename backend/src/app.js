@@ -3,6 +3,8 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/authRoutes');
 const extensionRoutes = require('./routes/extensionRoutes');
+const friendRoutes = require('./routes/friendRoutes');
+const inviteRoutes = require('./routes/inviteRoutes');
 const roomRoutes = require('./routes/roomRoutes');
 
 const app = express();
@@ -38,6 +40,8 @@ app.use('/api/', limiter);
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/extension', extensionRoutes);
+app.use('/api/friends', friendRoutes);
+app.use('/api/invites', inviteRoutes);
 app.use('/api/rooms', roomRoutes);
 
 module.exports = app;

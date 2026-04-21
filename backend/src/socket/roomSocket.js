@@ -35,10 +35,20 @@ function canControlRoom(room, userId) {
 }
 
 function registerRoomSocket(io, socket) {
+  socket.on('user:join', ({ userId }) => {
+    if (!userId) return;
+    socket.userId = userId;
+    socket.join(`user:${userId}`);
+  });
+
   socket.on('room:join', async ({ roomCode, user }) => {
     socket.join(roomCode);
     socket.roomCode = roomCode;
     socket.userData = user;
+    if (user?.id) {
+      socket.userId = user.id;
+      socket.join(`user:${user.id}`);
+    }
 
     const room = await Room.findOneAndUpdate(
       { code: roomCode, isActive: true },
@@ -340,6 +350,27 @@ function registerRoomSocket(io, socket) {
   socket.on('call:leave', ({ roomCode, userId }) => {
     socket.to(roomCode).emit('call:user-left', { userId });
     socket.callUserId = null;
+  });
+
+  socket.on('room:leave', async () => {
+    if (!socket.roomCode || !socket.userData) return;
+
+    const { roomCode, userData } = socket;
+    socket.leave(roomCode);
+    socket.roomCode = null;
+
+    const room = await Room.findOneAndUpdate(
+      { code: roomCode },
+      { $pull: { participants: { name: userData.name } } },
+      { new: true }
+    );
+
+    if (room) {
+      io.to(roomCode).emit('room:state', {
+        room,
+        systemMessage: `${userData.name} left the room`,
+      });
+    }
   });
 
   socket.on('disconnect', async () => {

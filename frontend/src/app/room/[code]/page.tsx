@@ -20,6 +20,9 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [friends, setFriends] = useState<any[]>([]);
+  const [inviteMessage, setInviteMessage] = useState('');
 
   const userEmail = session?.user?.email ?? '';
   const userName = session?.user?.name ?? 'Guest';
@@ -55,7 +58,7 @@ export default function RoomPage() {
     return () => {
       socket.off('room:state', handleRoomState);
       socket.off('room:kicked', handleKicked);
-      socket.disconnect();
+      socket.emit('room:leave');
     };
   }, [code, userEmail, userName]);
 
@@ -65,6 +68,31 @@ export default function RoomPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  const openInviteModal = async () => {
+    setShowInvite(true);
+    setInviteMessage('');
+    if (!userEmail) return;
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/friends?userId=${encodeURIComponent(userEmail)}`, { cache: 'no-store' });
+    if (res.ok) {
+      const payload = await res.json();
+      setFriends(payload.friends || []);
+    }
+  };
+
+  const inviteFriend = async (toUserId: string) => {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}/invites`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': userEmail,
+      },
+      body: JSON.stringify({ toUserId }),
+    });
+
+    setInviteMessage(res.ok ? 'Invite sent.' : (await res.json()).message || 'Invite failed.');
   };
 
   if (!room) {
@@ -99,6 +127,9 @@ export default function RoomPage() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button className="button button-secondary" onClick={copyInviteLink} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
             {copied ? '✓ Copied!' : '🔗 Invite Link'}
+          </button>
+          <button className="button button-secondary" onClick={openInviteModal} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+            Invite Friend
           </button>
           <button
             className="button button-secondary"
@@ -164,6 +195,40 @@ export default function RoomPage() {
           />
         </div>
       </div>
+
+      {showInvite && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', zIndex: 30 }}>
+          <div className="card glass" style={{ width: 'min(460px, calc(100vw - 32px))', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>Invite Friends</h3>
+              <button className="button button-secondary" onClick={() => setShowInvite(false)} style={{ width: 'auto', padding: '6px 10px' }}>
+                Close
+              </button>
+            </div>
+            {friends.length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)' }}>No accepted friends yet. Add friends from the Friends page first.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {friends.map((friendship) => {
+                  const friend = friendship.requesterId === userEmail ? friendship.addressee : friendship.requester;
+                  return (
+                    <div key={friendship.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{friend?.name || friend?.email}</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{friend?.email}</div>
+                      </div>
+                      <button className="button" onClick={() => inviteFriend(friend.email)} style={{ width: 'auto', padding: '7px 12px' }}>
+                        Invite
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {inviteMessage && <p style={{ margin: '12px 0 0', color: 'var(--primary)' }}>{inviteMessage}</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

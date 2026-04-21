@@ -1,4 +1,6 @@
 const express = require('express');
+const Friendship = require('../models/Friendship');
+const Invite = require('../models/Invite');
 const Room = require('../models/Room');
 const Message = require('../models/Message');
 
@@ -41,6 +43,24 @@ function serializeMessage(message) {
     text: message.text,
     type: message.type,
     createdAt: message.createdAt
+  };
+}
+
+function getUserId(req) {
+  return req.get('x-user-id') || req.body.userId || req.query.userId;
+}
+
+function serializeInvite(invite, room) {
+  return {
+    id: invite._id,
+    roomId: invite.roomId,
+    roomCode: room?.code,
+    roomName: room?.name,
+    fromUserId: invite.fromUserId,
+    toUserId: invite.toUserId,
+    status: invite.status,
+    createdAt: invite.createdAt,
+    expiresAt: invite.expiresAt
   };
 }
 
@@ -95,6 +115,50 @@ router.get('/:id/messages', async (req, res) => {
       .limit(limit);
 
     res.json(messages.map(serializeMessage));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/:id/invites', async (req, res) => {
+  try {
+    const fromUserId = getUserId(req);
+    const { toUserId } = req.body;
+    if (!fromUserId || !toUserId) {
+      return res.status(400).json({ message: 'userId and toUserId are required' });
+    }
+
+    const room = await findRoomByIdOrCode(req.params.id);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    const participant = room.participants?.some(
+      (p) => p.userId === fromUserId || p.name === fromUserId
+    );
+    if (room.hostUserId !== fromUserId && !participant) {
+      return res.status(403).json({ message: 'Must be host or in room to invite' });
+    }
+
+    const friendship = await Friendship.findOne({
+      status: 'accepted',
+      $or: [
+        { requesterId: fromUserId, addresseeId: toUserId },
+        { requesterId: toUserId, addresseeId: fromUserId }
+      ]
+    });
+    if (!friendship) {
+      return res.status(400).json({ message: 'Can only invite accepted friends' });
+    }
+
+    const invite = await Invite.create({
+      roomId: room._id,
+      fromUserId,
+      toUserId,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    });
+
+    const payload = serializeInvite(invite, room);
+    req.app.get('io')?.to(`user:${toUserId}`).emit('invite:new', payload);
+    res.status(201).json(payload);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
