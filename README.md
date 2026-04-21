@@ -6,6 +6,7 @@ A simple full-stack watch party starter with:
 - MongoDB Atlas
 - Anonymous guest identity
 - Room creation, join, chat, and basic playback sync
+- Redis-backed transient presence with a 60-second reconnect grace window
 
 ## Important note on streaming platforms
 This starter supports:
@@ -69,9 +70,20 @@ npm run dev
 PORT=5000
 CLIENT_URL=http://localhost:3000
 MONGODB_URI=your_mongodb_atlas_uri
+REDIS_URL=redis://localhost:6379
 GUEST_JWT_SECRET=replace_me
 EXTENSION_TOKEN_SECRET=replace_me
 ```
+
+`REDIS_URL` stores live room presence only. Presence is intentionally transient:
+users are marked `reconnecting` on socket disconnect and are removed only after
+60 seconds without returning, or immediately when they click Leave. Room presence
+hashes/sets expire after 6 hours so a server crash does not leak records.
+
+If `REDIS_URL` is unset outside production, the backend uses `ioredis-mock` so
+local development still works. That mock is process-local, so presence resets on
+server restart. With real Redis still running, clients rebuild presence as they
+reconnect after a backend restart.
 
 ### Frontend `.env.local`
 ```env

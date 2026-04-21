@@ -17,13 +17,6 @@ const roomSchema = new mongoose.Schema(
       currentTime: { type: Number, default: 0 },
       updatedAt: { type: Date, default: Date.now }
     },
-    participants: [
-      {
-        userId: String,
-        name: String,
-        joinedAt: { type: Date, default: Date.now }
-      }
-    ],
     isActive: { type: Boolean, default: true },
     lastActivityAt: { type: Date, default: Date.now }
   },

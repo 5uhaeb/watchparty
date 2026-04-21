@@ -1,10 +1,12 @@
 require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
 const app = require('./app');
 const connectDB = require('./config/db');
 const registerRoomSocket = require('./socket/roomSocket');
 const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
+const { createAdapterClients, usingMockRedis } = require('./lib/redis');
 
 connectDB();
 
@@ -29,6 +31,13 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+
+const adapterClients = createAdapterClients();
+if (adapterClients) {
+  io.adapter(createAdapter(adapterClients.pubClient, adapterClients.subClient));
+} else if (usingMockRedis) {
+  console.log('REDIS_URL not set; using in-memory Redis mock for dev presence.');
+}
 
 const handshakeBuckets = new Map();
 

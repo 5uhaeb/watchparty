@@ -34,6 +34,7 @@ export default function RoomPage() {
 
   const [room, setRoom] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
+  const [presenceMembers, setPresenceMembers] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
@@ -45,6 +46,7 @@ export default function RoomPage() {
   const [streamNotice, setStreamNotice] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [connectionToast, setConnectionToast] = useState('');
 
   const guestId = guest?.guestId ?? '';
   const userName = guest?.displayName ?? 'Guest';
@@ -73,8 +75,14 @@ export default function RoomPage() {
     };
 
     const handleRoomState = (payload: any) => {
-      if (payload.room) setRoom(payload.room);
+      if (payload.room) {
+        setRoom(payload.room);
+        if (payload.room.participants) setPresenceMembers(payload.room.participants);
+      }
       if (payload.messages) setMessages(payload.messages);
+    };
+    const handlePresence = (payload: any) => {
+      setPresenceMembers(payload.members || []);
     };
 
     const handleKicked = ({ reason }: { reason: string }) => {
@@ -95,12 +103,22 @@ export default function RoomPage() {
       if (payload.room) setRoom(payload.room);
       socket.emit('player:state', { roomCode: code });
     };
+    const handleDisconnect = () => {
+      setConnectionToast('Connection lost - reconnecting...');
+    };
+    const handleReconnect = () => {
+      setConnectionToast('Back online');
+      window.setTimeout(() => setConnectionToast(''), 2500);
+      joinCurrentRoom();
+    };
 
     socket.on('room:state', handleRoomState);
     socket.on('room:kicked', handleKicked);
     socket.on('room:ended', handleEnded);
     socket.on('room:sourceChanged', handleSourceChanged);
-    socket.io.on('reconnect', joinCurrentRoom);
+    socket.on('room:presence', handlePresence);
+    socket.on('disconnect', handleDisconnect);
+    socket.io.on('reconnect', handleReconnect);
 
     joinCurrentRoom();
     getRoom(code).then(setRoom).catch(() => {});
@@ -110,8 +128,9 @@ export default function RoomPage() {
       socket.off('room:kicked', handleKicked);
       socket.off('room:ended', handleEnded);
       socket.off('room:sourceChanged', handleSourceChanged);
-      socket.io.off('reconnect', joinCurrentRoom);
-      socket.emit('room:leave');
+      socket.off('room:presence', handlePresence);
+      socket.off('disconnect', handleDisconnect);
+      socket.io.off('reconnect', handleReconnect);
     };
   }, [code, guestId, router, userName]);
 
@@ -293,6 +312,12 @@ export default function RoomPage() {
 
   return (
     <div className="room-page">
+      {connectionToast && (
+        <div className="card glass" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50, padding: '10px 14px' }}>
+          {connectionToast}
+        </div>
+      )}
+
       <div className="card glass room-header">
         <div className="room-title-block">
           {editingTitle ? (
@@ -445,7 +470,7 @@ export default function RoomPage() {
           />
 
           <UserList
-            initialParticipants={room.participants || []}
+            initialParticipants={presenceMembers}
             hostUserId={room.ownerGuestId}
             currentUserEmail={guestId}
             roomCode={code}

@@ -7,7 +7,7 @@ export const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1500,
-  reconnectionDelayMax: 8000
+  reconnectionDelayMax: 5000
 });
 
 socket.on('connect_error', async (error) => {

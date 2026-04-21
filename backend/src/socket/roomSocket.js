@@ -1,6 +1,12 @@
 const Message = require('../models/Message');
 const Room = require('../models/Room');
 const { verifyExtensionToken } = require('../lib/extensionToken');
+const {
+  presenceJoin,
+  presenceDisconnect,
+  presenceLeave,
+  isMember,
+} = require('../lib/presence');
 
 function serializeMessage(message) {
   return {
@@ -24,22 +30,22 @@ function getUserId(socket, userId) {
   return socket.data?.guestId || userId || socket.userData?.id || socket.userData?.name;
 }
 
-function canControlRoom(room, userId) {
+async function canControlRoom(room, userId) {
   if (!room || !userId) return false;
 
-  const participant = room.participants?.some(
-    (p) => p.userId === userId || p.name === userId
+  return (
+    room.ownerGuestId === userId ||
+    room.adminGuestIds?.includes(userId) ||
+    (await isMember(room.code, userId))
   );
-
-  return participant || room.ownerGuestId === userId || room.adminGuestIds?.includes(userId);
 }
 
-function isRoomMember(room, userId) {
+async function isRoomMember(room, userId) {
   if (!room || !userId) return false;
   return (
     room.ownerGuestId === userId ||
     room.adminGuestIds?.includes(userId) ||
-    room.participants?.some((p) => p.userId === userId || p.name === userId)
+    (await isMember(room.code, userId))
   );
 }
 
@@ -99,31 +105,6 @@ function emitSourceChanged(io, roomCode, room, source = room.source || null) {
   io.to(roomCode).emit('room:state', { room });
   io.to(roomCode).emit('source:changed', { source, room });
   io.to(roomCode).emit('room:sourceChanged', { source, room });
-}
-
-async function clearLocalStreamIfHostedBy(io, roomCode, socketId, updatedBy = 'unknown') {
-  if (!roomCode || !socketId) return null;
-
-  const room = await Room.findOne({ code: roomCode, isActive: true });
-  if (
-    !room ||
-    room.source?.type !== 'localStream' ||
-    room.source?.hostSocketId !== socketId
-  ) {
-    return room;
-  }
-
-  room.source = null;
-  room.playback = {
-    isPlaying: false,
-    currentTime: 0,
-    updatedAt: new Date(),
-    updatedBy,
-  };
-  room.lastActivityAt = new Date();
-  await room.save();
-  emitSourceChanged(io, roomCode, room, null);
-  return room;
 }
 
 function consumeBucket(socket, name, capacity, refillMs) {
@@ -202,34 +183,25 @@ function registerRoomSocket(io, socket) {
     socket.userId = guestId;
     socket.join(`user:${guestId}`);
 
-    const room = await Room.findOneAndUpdate(
-      { code: roomCode, isActive: true },
-      {
-        $addToSet: {
-          participants: {
-            userId: guestId,
-            name: displayName,
-          },
-        },
-      },
-      { new: true }
-    );
+    const room = await Room.findOne({ code: roomCode, isActive: true });
 
     if (!room) return;
 
     socket.isHost = room.ownerGuestId === guestId;
+    const presence = await presenceJoin(io, roomCode, socket);
+    const roomState = { ...room.toObject(), participants: presence };
 
     const messages = await Message.find({ roomId: room._id })
       .sort({ createdAt: -1, _id: -1 })
       .limit(50);
 
     // full state only to the user who joined
-    socket.emit('room:state', { room });
+    socket.emit('room:state', { room: roomState });
     socket.emit('chat:history', messages.reverse().map(serializeMessage));
 
     // lightweight participant update + system message to everyone else
     socket.to(roomCode).emit('room:state', {
-      room,
+      room: roomState,
       systemMessage: `${displayName} joined the room`,
     });
 
@@ -296,18 +268,7 @@ function registerRoomSocket(io, socket) {
       return;
     }
 
-    const room = await Room.findOneAndUpdate(
-      { code: roomCode, isActive: true },
-      {
-        $addToSet: {
-          participants: {
-            userId: claims.sub,
-            name: claims.name || claims.sub,
-          },
-        },
-      },
-      { new: true }
-    );
+    const room = await Room.findOne({ code: roomCode, isActive: true });
 
     if (!room) {
       socket.emit('extension:error', { message: 'Room not found' });
@@ -317,6 +278,9 @@ function registerRoomSocket(io, socket) {
     socket.join(roomCode);
     socket.roomCode = roomCode;
     socket.userData = { id: claims.sub, name: claims.name || claims.sub };
+    socket.data.guestId = claims.sub;
+    socket.data.displayName = claims.name || claims.sub;
+    await presenceJoin(io, roomCode, socket);
     socket.emit('extension:joined', { roomCode, userId: claims.sub });
   });
 
@@ -325,7 +289,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!canControlRoom(room, actorUserId)) return;
+    if (!(await canControlRoom(room, actorUserId))) return;
 
     const atServerTs = Date.now();
     const payload = {
@@ -353,7 +317,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!canControlRoom(room, actorUserId)) return;
+    if (!(await canControlRoom(room, actorUserId))) return;
 
     const atServerTs = Date.now();
     const payload = {
@@ -381,7 +345,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!canControlRoom(room, actorUserId)) return;
+    if (!(await canControlRoom(room, actorUserId))) return;
 
     const atServerTs = Date.now();
     const nextPosition = Number(positionSec || 0);
@@ -508,7 +472,7 @@ function registerRoomSocket(io, socket) {
 
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     const actorUserId = getUserId(socket);
-    if (!room || !isRoomMember(room, actorUserId)) return;
+    if (!room || !(await isRoomMember(room, actorUserId))) return;
     if (room.source?.type !== 'localStream' || !room.source?.hostSocketId) return;
     if (room.source.hostSocketId === socket.id) return;
 
@@ -527,7 +491,7 @@ function registerRoomSocket(io, socket) {
 
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     const actorUserId = getUserId(socket);
-    if (!room || !isRoomMember(room, actorUserId)) return;
+    if (!room || !(await isRoomMember(room, actorUserId))) return;
     if (room.source?.type !== 'localStream') return;
 
     io.to(toSocketId).emit('webrtc:signal', {
@@ -542,11 +506,8 @@ function registerRoomSocket(io, socket) {
     const room = await Room.findOne({ code: roomCode });
     if (!room) return;
 
-    const participant = room.participants?.some(
-      (p) => p.userId === userId || p.name === userId
-    );
-
     const isHost = room.ownerGuestId === userId || room.adminGuestIds?.includes(userId);
+    const participant = await isMember(roomCode, userId);
 
     if (!participant && !isHost) return;
 
@@ -580,22 +541,15 @@ function registerRoomSocket(io, socket) {
         s.emit('room:kicked', {
           reason: 'You were removed by the host.',
         });
+        await presenceLeave(io, s);
         s.leave(roomCode);
         break;
       }
     }
 
-    const updatedRoom = await Room.findOneAndUpdate(
-      { code: roomCode },
-      { $pull: { participants: { name: targetName } } },
-      { new: true }
-    );
-
+    const updatedRoom = await Room.findOne({ code: roomCode });
     if (updatedRoom) {
-      io.to(roomCode).emit('room:state', {
-        room: updatedRoom,
-        systemMessage: `${targetName} was removed by the host.`,
-      });
+      io.to(roomCode).emit('room:state', { room: updatedRoom });
     }
   });
 
@@ -625,22 +579,13 @@ function registerRoomSocket(io, socket) {
     if (!socket.roomCode || !socket.userData) return;
 
     const { roomCode, userData } = socket;
-    await clearLocalStreamIfHostedBy(io, roomCode, socket.id, getUserId(socket) || 'unknown');
+    await presenceLeave(io, socket);
     socket.leave(roomCode);
     socket.roomCode = null;
-
-    const room = await Room.findOneAndUpdate(
-      { code: roomCode },
-      { $pull: { participants: { name: userData.name } } },
-      { new: true }
-    );
-
-    if (room) {
-      io.to(roomCode).emit('room:state', {
-        room,
-        systemMessage: `${userData.name} left the room`,
-      });
-    }
+    io.to(roomCode).emit('room:state', {
+      room: await Room.findOne({ code: roomCode }),
+      systemMessage: `${userData.name} left the room`,
+    });
   });
 
   socket.on('room:end', async ({ roomCode, userId } = {}) => {
@@ -661,27 +606,14 @@ function registerRoomSocket(io, socket) {
   socket.on('disconnect', async () => {
     if (!socket.roomCode || !socket.userData) return;
 
-    const { roomCode, userData } = socket;
+    const { roomCode } = socket;
     if (socket.callUserId) {
       socket.to(roomCode).emit('call:user-left', {
         userId: socket.callUserId,
       });
     }
 
-    await clearLocalStreamIfHostedBy(io, roomCode, socket.id, getUserId(socket) || 'unknown');
-
-    const room = await Room.findOneAndUpdate(
-      { code: roomCode },
-      { $pull: { participants: { name: userData.name } } },
-      { new: true }
-    );
-
-    if (room) {
-      io.to(roomCode).emit('room:state', {
-        room,
-        systemMessage: `${userData.name} left the room`,
-      });
-    }
+    await presenceDisconnect(io, socket);
   });
 }
 

@@ -4,8 +4,27 @@ import { useEffect, useState } from 'react';
 import { socket } from '@/lib/socket';
 
 interface Participant {
-  userId: string;
-  name: string;
+  guestId?: string;
+  userId?: string;
+  displayName?: string;
+  name?: string;
+  avatarHue?: number;
+  state?: 'online' | 'reconnecting';
+  reconnectExpiresAt?: string | null;
+}
+
+function normalizeParticipant(user: Participant): Required<Pick<Participant, 'guestId' | 'displayName' | 'state'>> & Participant {
+  return {
+    ...user,
+    guestId: user.guestId || user.userId || user.name || '',
+    displayName: user.displayName || user.name || 'Guest',
+    state: user.state || 'online',
+  };
+}
+
+function secondsRemaining(expiresAt?: string | null) {
+  if (!expiresAt) return 60;
+  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
 export default function UserList({
@@ -21,21 +40,66 @@ export default function UserList({
   roomCode?: string;
   isStreaming?: boolean;
 }) {
-  const [participants, setParticipants] = useState<Participant[]>(initialParticipants);
+  const [participants, setParticipants] = useState<Participant[]>(initialParticipants.map(normalizeParticipant));
+  const [, forceTick] = useState(0);
   const isHost = !!hostUserId && hostUserId === currentUserEmail;
 
   useEffect(() => {
-    setParticipants(initialParticipants);
+    setParticipants(initialParticipants.map(normalizeParticipant));
   }, [initialParticipants]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => forceTick((value) => value + 1), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const handleRoomState = (payload: any) => {
       if (payload.room?.participants) {
-        setParticipants(payload.room.participants);
+        setParticipants(payload.room.participants.map(normalizeParticipant));
       }
     };
+    const handlePresence = (payload: { members?: Participant[] }) => {
+      setParticipants((payload.members || []).map(normalizeParticipant));
+    };
+    const handleBack = ({ guestId }: { guestId: string }) => {
+      setParticipants((current) =>
+        current.map((user) =>
+          normalizeParticipant(user).guestId === guestId
+            ? { ...user, state: 'online', reconnectExpiresAt: null }
+            : user
+        )
+      );
+    };
+    const handleReconnecting = ({ guestId }: { guestId: string }) => {
+      setParticipants((current) =>
+        current.map((user) =>
+          normalizeParticipant(user).guestId === guestId
+            ? {
+                ...user,
+                state: 'reconnecting',
+                reconnectExpiresAt: new Date(Date.now() + 60 * 1000).toISOString(),
+              }
+            : user
+        )
+      );
+    };
+    const handleLeft = ({ guestId }: { guestId: string }) => {
+      setParticipants((current) => current.filter((user) => normalizeParticipant(user).guestId !== guestId));
+    };
+
     socket.on('room:state', handleRoomState);
-    return () => { socket.off('room:state', handleRoomState); };
+    socket.on('room:presence', handlePresence);
+    socket.on('participant:back', handleBack);
+    socket.on('participant:reconnecting', handleReconnecting);
+    socket.on('participant:left', handleLeft);
+    return () => {
+      socket.off('room:state', handleRoomState);
+      socket.off('room:presence', handlePresence);
+      socket.off('participant:back', handleBack);
+      socket.off('participant:reconnecting', handleReconnecting);
+      socket.off('participant:left', handleLeft);
+    };
   }, []);
 
   const kickUser = (name: string) => {
@@ -54,24 +118,32 @@ export default function UserList({
       </h3>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {participants.map((user, idx) => {
-          const isThisHost = user.userId === hostUserId || user.name === hostUserId;
-          const isMe = user.userId === currentUserEmail;
+        {participants.map((rawUser, idx) => {
+          const user = normalizeParticipant(rawUser);
+          const isThisHost = user.guestId === hostUserId;
+          const isMe = user.guestId === currentUserEmail;
+          const isReconnecting = user.state === 'reconnecting';
+          const remaining = secondsRemaining(user.reconnectExpiresAt);
 
           return (
             <div
-              key={user.userId || idx}
+              key={user.guestId || idx}
               className="participant-row"
-              style={{ borderColor: isMe ? 'var(--blue)' : undefined }}
+              title={isReconnecting ? `Reconnecting... will be removed in ${remaining}s if they don't return` : undefined}
+              style={{
+                borderColor: isMe ? 'var(--blue)' : undefined,
+                opacity: isReconnecting ? 0.58 : 1,
+                filter: isReconnecting ? 'grayscale(0.35)' : undefined,
+              }}
             >
-              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: isThisHost ? 'var(--accent)' : 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0 }}>
-                {user.name.charAt(0).toUpperCase()}
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: `hsl(${user.avatarHue ?? (isThisHost ? 38 : 215)} 78% 48%)`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0 }}>
+                {user.displayName.charAt(0).toUpperCase()}
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontWeight: 500, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user.name}
+                    {user.displayName}
                   </span>
                   {isMe && (
                     <span style={{ fontSize: '0.7rem', color: 'var(--primary)', background: 'rgba(59,130,246,0.1)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>
@@ -88,13 +160,17 @@ export default function UserList({
                       Streaming
                     </span>
                   )}
+                  {isReconnecting && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', background: 'var(--surface-3)', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>
+                      Reconnecting {remaining}s
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Kick button visible to host only, not for self */}
-              {isHost && !isMe && (
+              {isHost && !isMe && !isReconnecting && (
                 <button
-                  onClick={() => kickUser(user.name)}
+                  onClick={() => kickUser(user.displayName)}
                   title="Remove from room"
                   style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '3px 8px', fontSize: '0.75rem', cursor: 'pointer', flexShrink: 0 }}
                 >
