@@ -3,24 +3,15 @@ const mongoose = require('mongoose');
 const roomSchema = new mongoose.Schema(
   {
     code: { type: String, required: true, unique: true },
-    name: { type: String, required: true },
-    hostUserId: { type: String, required: true },
-    sourceType: {
-      type: String,
-      enum: ['youtube', 'local', 'localStream', 'ott-sync'],
-      default: 'youtube'
+    title: { type: String, required: true, default: 'Untitled room' },
+    createdByGuestId: { type: String, required: true },
+    ownerGuestId: { type: String, required: true },
+    adminGuestIds: [{ type: String }],
+    permissions: {
+      changeSource: { type: String, enum: ['ownerAdmin'], default: 'ownerAdmin' },
+      editTitle: { type: String, enum: ['ownerAdmin'], default: 'ownerAdmin' }
     },
-    sourceData: {
-      url: String,
-      fileName: String,
-      fileSize: Number,
-      fileFormat: String,  // e.g., 'mp4', 'webm', 'mkv', 'avi'
-      mimeType: String,    // e.g., 'video/mp4'
-      ottPlatform: String,
-      sizeBytes: Number,       // localStream: file size
-      durationSec: Number,     // localStream: video duration
-      hostSocketId: String     // localStream: WebRTC signaling address
-    },
+    source: { type: mongoose.Schema.Types.Mixed, default: null },
     playback: {
       isPlaying: { type: Boolean, default: false },
       currentTime: { type: Number, default: 0 },
@@ -33,9 +24,12 @@ const roomSchema = new mongoose.Schema(
         joinedAt: { type: Date, default: Date.now }
       }
     ],
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    lastActivityAt: { type: Date, default: Date.now }
   },
   { timestamps: true }
 );
+
+roomSchema.index({ lastActivityAt: 1 }, { expireAfterSeconds: 60 * 60 * 6 });
 
 module.exports = mongoose.model('Room', roomSchema);

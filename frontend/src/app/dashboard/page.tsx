@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useGuest } from '@/components/GuestProvider';
+import { createRoom } from '@/lib/api';
 
 export default function DashboardPage() {
   const { guest } = useGuest();
@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [joining, setJoining] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const handleJoin = async () => {
     const code = joinCode.trim().toUpperCase();
@@ -36,8 +37,20 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCreateRoom = async () => {
+    setCreating(true);
+    try {
+      const room = await createRoom();
+      router.push(`/room/${room.code}`);
+    } catch {
+      setJoinError('Could not create a room. Try again.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const steps = [
-    { number: '1', title: 'Create a room', desc: 'Choose YouTube, local streaming, file link, or OTT sync mode.' },
+    { number: '1', title: 'Create a room', desc: 'Open an empty room instantly, then choose what to play inside.' },
     { number: '2', title: 'Share the code', desc: 'Send the room code or invite link to anyone.' },
     { number: '3', title: 'Watch together', desc: 'Playback stays synced, or viewers watch the host stream live.' },
     { number: '4', title: 'Chat and call', desc: 'Live chat and WebRTC video call stay inside the room.' },
@@ -73,9 +86,9 @@ export default function DashboardPage() {
               Create a room and share the code.
             </p>
           </div>
-          <Link href="/create-room" className="button" style={{ width: '100%', textAlign: 'center' }}>
-            Create new room
-          </Link>
+          <button className="button" onClick={handleCreateRoom} disabled={creating} style={{ width: '100%', textAlign: 'center' }}>
+            {creating ? 'Creating...' : 'Create new room'}
+          </button>
         </div>
       </div>
 

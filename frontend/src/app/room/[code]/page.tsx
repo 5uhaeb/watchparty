@@ -10,7 +10,7 @@ import UserList from '@/components/UserList';
 import VideoCallPanel from '@/components/VideoCallPanel';
 import { useGuest } from '@/components/GuestProvider';
 
-type SourceType = 'youtube' | 'local' | 'localStream' | 'ott-sync';
+type SourceTab = 'youtube' | 'localStream';
 
 function prettySize(bytes?: number) {
   if (!bytes) return 'unknown size';
@@ -37,21 +37,26 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
-  const [sourceTypeDraft, setSourceTypeDraft] = useState<SourceType>('youtube');
+  const [sourceTab, setSourceTab] = useState<SourceTab>('youtube');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
-  const [ottPlatformDraft, setOttPlatformDraft] = useState('netflix');
   const [sourceMessage, setSourceMessage] = useState('');
-  const [localFileDraft, setLocalFileDraft] = useState<{ name: string; size: number } | null>(null);
   const [localStreamFileDraft, setLocalStreamFileDraft] = useState<File | null>(null);
   const [localStreamFile, setLocalStreamFile] = useState<File | null>(null);
   const [streamNotice, setStreamNotice] = useState('');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
 
   const guestId = guest?.guestId ?? '';
   const userName = guest?.displayName ?? 'Guest';
-  const isHost = !!room && room.hostUserId === guestId;
-  const roomSourceType = room?.source?.type || room?.sourceType;
-  const roomSourceData = room?.source?.data || room?.sourceData;
-  const roomSourceUrl = room?.source?.url || roomSourceData?.url;
+  const source = room?.source || null;
+  const isHost = !!room && room.ownerGuestId === guestId;
+  const isAdmin = !!room && room.adminGuestIds?.includes(guestId);
+  const canChangeSource = isHost || isAdmin;
+  const activeSourceType = localStreamFile ? 'localStream' : source?.type;
+  const activeSourceData = localStreamFile
+    ? { fileName: localStreamFile.name, sizeBytes: localStreamFile.size }
+    : source;
+  const activeSourceUrl = source?.type === 'youtube' ? source.url : undefined;
 
   useEffect(() => {
     if (!code) return;
@@ -94,32 +99,28 @@ export default function RoomPage() {
     socket.on('room:state', handleRoomState);
     socket.on('room:kicked', handleKicked);
     socket.on('room:ended', handleEnded);
-    socket.on('source:changed', handleSourceChanged);
+    socket.on('room:sourceChanged', handleSourceChanged);
     socket.io.on('reconnect', joinCurrentRoom);
 
     joinCurrentRoom();
-
     getRoom(code).then(setRoom).catch(() => {});
 
     return () => {
       socket.off('room:state', handleRoomState);
       socket.off('room:kicked', handleKicked);
       socket.off('room:ended', handleEnded);
-      socket.off('source:changed', handleSourceChanged);
+      socket.off('room:sourceChanged', handleSourceChanged);
       socket.io.off('reconnect', joinCurrentRoom);
       socket.emit('room:leave');
     };
-  }, [code, guestId, userName]);
+  }, [code, guestId, router, userName]);
 
   useEffect(() => {
     if (!room) return;
-    setSourceTypeDraft((roomSourceType || 'youtube') as SourceType);
-    setSourceUrlDraft(roomSourceUrl || '');
-    setOttPlatformDraft(room.sourceData?.ottPlatform || 'netflix');
-    if (roomSourceType !== 'localStream') {
-      setLocalStreamFile(null);
-    }
-  }, [room, roomSourceType, roomSourceUrl]);
+    setTitleDraft(room.title || 'Untitled room');
+    if (source?.type === 'youtube') setSourceUrlDraft(source.url || '');
+    if (source?.type !== 'localStream') setLocalStreamFile(null);
+  }, [room, source?.type, source?.url]);
 
   const copyInviteLink = () => {
     const url = `${window.location.origin}/room/${code}`;
@@ -135,13 +136,12 @@ export default function RoomPage() {
   };
 
   const endRoom = async () => {
-    if (!isHost) return;
+    if (!canChangeSource) return;
     const confirmed = window.confirm('End this room for everyone?');
     if (!confirmed) return;
 
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
     });
 
@@ -153,10 +153,36 @@ export default function RoomPage() {
     alert((await res.json()).message || 'Could not end room.');
   };
 
-  const saveSource = async () => {
+  const saveTitle = async () => {
+    if (!canChangeSource || !room) return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle || nextTitle === room.title) {
+      setEditingTitle(false);
+      setTitleDraft(room.title || 'Untitled room');
+      return;
+    }
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ title: nextTitle }),
+    });
+
+    if (res.ok) {
+      setRoom(await res.json());
+      setEditingTitle(false);
+      return;
+    }
+
+    alert((await res.json()).message || 'Could not update title.');
+  };
+
+  const submitSource = () => {
     setSourceMessage('');
 
-    if (sourceTypeDraft === 'localStream') {
+    if (!canChangeSource) return;
+    if (sourceTab === 'localStream') {
       if (!localStreamFileDraft) {
         setSourceMessage('Choose a local video file to stream.');
         return;
@@ -167,35 +193,91 @@ export default function RoomPage() {
       return;
     }
 
-    const sourceData: any =
-      sourceTypeDraft === 'ott-sync'
-        ? { ottPlatform: ottPlatformDraft }
-        : sourceTypeDraft === 'local'
-        ? { url: sourceUrlDraft.trim(), fileName: localFileDraft?.name, fileSize: localFileDraft?.size }
-        : { url: sourceUrlDraft.trim() };
-
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}/source`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        sourceType: sourceTypeDraft,
-        sourceData,
-      }),
-    });
-
-    if (!res.ok) {
-      setSourceMessage((await res.json()).message || 'Could not update source.');
+    const url = sourceUrlDraft.trim();
+    if (!url) {
+      setSourceMessage('Paste a YouTube URL.');
       return;
     }
 
-    const updatedRoom = await res.json();
-    setRoom(updatedRoom);
+    socket.emit('room:setSource', { type: 'youtube', url });
     setLocalStreamFile(null);
     setShowSourceModal(false);
   };
+
+  const clearSource = () => {
+    if (!canChangeSource) return;
+    setLocalStreamFile(null);
+    socket.emit('room:setSource', { type: 'clear' });
+    setShowSourceModal(false);
+  };
+
+  const openSourcePicker = (tab: SourceTab) => {
+    setSourceTab(tab);
+    setSourceMessage('');
+    setShowSourceModal(true);
+  };
+
+  const sourcePicker = (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div className="player-toolbar" style={{ justifyContent: 'center' }}>
+        <button
+          className={`button ${sourceTab === 'youtube' ? '' : 'button-secondary'}`}
+          onClick={() => setSourceTab('youtube')}
+        >
+          YouTube
+        </button>
+        <button
+          className={`button ${sourceTab === 'localStream' ? '' : 'button-secondary'}`}
+          onClick={() => setSourceTab('localStream')}
+        >
+          Local file
+        </button>
+      </div>
+
+      {sourceTab === 'localStream' ? (
+        <label style={{ display: 'grid', gap: 6 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Stream local file</span>
+          <input
+            type="file"
+            accept="video/*,.mkv,.avi,.mov,.m4v,.webm,.ogv"
+            className="input"
+            style={{ padding: '8px' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              setLocalStreamFileDraft(file);
+              setSourceMessage('');
+            }}
+          />
+          {localStreamFileDraft && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--primary)', overflowWrap: 'anywhere' }}>
+              Selected: {localStreamFileDraft.name} ({prettySize(localStreamFileDraft.size)})
+            </div>
+          )}
+        </label>
+      ) : (
+        <label style={{ display: 'grid', gap: 6 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>YouTube URL</span>
+          <input
+            className="input"
+            value={sourceUrlDraft}
+            onChange={(event) => setSourceUrlDraft(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && submitSource()}
+            placeholder="https://www.youtube.com/watch?v=..."
+          />
+        </label>
+      )}
+
+      <button className="button" onClick={submitSource}>
+        {sourceTab === 'localStream' ? 'Start streaming' : 'Play YouTube'}
+      </button>
+      {source && (
+        <button className="button button-secondary" onClick={clearSource}>
+          Clear source
+        </button>
+      )}
+      {sourceMessage && <p style={{ margin: 0, color: '#ef4444' }}>{sourceMessage}</p>}
+    </div>
+  );
 
   if (!room) {
     return (
@@ -211,10 +293,34 @@ export default function RoomPage() {
 
   return (
     <div className="room-page">
-      {/* Room Header */}
       <div className="card glass room-header">
         <div className="room-title-block">
-          <h1 style={{ margin: '0 0 4px', fontSize: '1.4rem' }}>{room.name}</h1>
+          {editingTitle ? (
+            <input
+              className="input"
+              value={titleDraft}
+              autoFocus
+              maxLength={60}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') saveTitle();
+                if (event.key === 'Escape') {
+                  setEditingTitle(false);
+                  setTitleDraft(room.title || 'Untitled room');
+                }
+              }}
+              style={{ marginBottom: 6 }}
+            />
+          ) : (
+            <h1
+              onClick={() => canChangeSource && setEditingTitle(true)}
+              title={canChangeSource ? 'Edit room title' : undefined}
+              style={{ margin: '0 0 4px', fontSize: '1.4rem', cursor: canChangeSource ? 'text' : 'default' }}
+            >
+              {room.title || 'Untitled room'}
+            </h1>
+          )}
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
             Code:&nbsp;
             <span style={{ color: 'var(--primary)', fontWeight: 700, letterSpacing: '0.08em' }}>{room.code}</span>
@@ -230,25 +336,25 @@ export default function RoomPage() {
           <button className="button button-secondary" onClick={copyInviteLink}>
             {copied ? 'Copied' : 'Invite link'}
           </button>
-          {isHost && (
-            <button className="button button-secondary" onClick={() => setShowSourceModal(true)}>
+          {canChangeSource && (
+            <button className="button button-secondary" onClick={() => openSourcePicker((source?.type as SourceTab) || 'youtube')}>
               Change Source
             </button>
           )}
           <button
             className="button button-secondary"
-            onClick={() => setShowCall(p => !p)}
+            onClick={() => setShowCall((value) => !value)}
             style={{ background: showCall ? 'var(--surface-3)' : undefined }}
           >
             {showCall ? 'Hide call' : 'Video call'}
           </button>
           <div className="button button-secondary source-pill">
-            {roomSourceType.toUpperCase()}
+            {(activeSourceType || 'no source').toUpperCase()}
           </div>
           <button className="button button-secondary" onClick={leaveRoom}>
             Leave
           </button>
-          {isHost && (
+          {canChangeSource && (
             <button className="button" onClick={endRoom} style={{ background: '#ef4444' }}>
               End Room
             </button>
@@ -256,41 +362,66 @@ export default function RoomPage() {
         </div>
       </div>
 
-      {/* Main Layout */}
       <div className="row">
-        {/* Left column: player */}
         <div className="content-column">
-          <RoomPlayer
-            roomCode={code}
-            videoUrl={roomSourceUrl}
-            sourceType={roomSourceType}
-            sourceData={roomSourceData}
-            localStreamFile={localStreamFile}
-            isHost={isHost}
-            currentUserId={guestId}
-            onLocalStreamStopped={() => {
-              setLocalStreamFile(null);
-              setStreamNotice('Host ended the stream.');
-            }}
-          />
+          {activeSourceType ? (
+            <RoomPlayer
+              roomCode={code}
+              videoUrl={activeSourceUrl}
+              sourceType={activeSourceType}
+              sourceData={activeSourceData}
+              localStreamFile={localStreamFile}
+              isHost={canChangeSource}
+              currentUserId={guestId}
+              onLocalStreamStopped={() => {
+                setLocalStreamFile(null);
+                setStreamNotice('Host ended the stream.');
+              }}
+            />
+          ) : (
+            <div className="card glass" style={{ minHeight: 360, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 32 }}>
+              <div style={{ maxWidth: 460 }}>
+                <div className="label-tag" style={{ marginBottom: 12 }}>Empty room</div>
+                <h2 style={{ margin: '0 0 10px' }}>Nothing is playing yet</h2>
+                {canChangeSource ? (
+                  <>
+                    <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)' }}>
+                      Pick something to start the watch party.
+                    </p>
+                    <div className="player-toolbar" style={{ justifyContent: 'center' }}>
+                      <button className="button" onClick={() => openSourcePicker('youtube')}>
+                        Paste YouTube URL
+                      </button>
+                      <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
+                        Play local file
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                    Waiting for the host to pick something...
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
-          {/* OTT note / room details */}
-          {roomSourceType !== 'ott-sync' && (
+          {source && (
             <div className="card glass">
               <h3 style={{ margin: '0 0 8px' }}>Now Watching</h3>
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
-                {roomSourceType === 'localStream'
-                  ? `${roomSourceData?.fileName || 'Local stream'} (${prettySize(roomSourceData?.sizeBytes || roomSourceData?.fileSize)}, ${prettyDuration(roomSourceData?.durationSec)})`
-                  : roomSourceUrl || roomSourceData?.fileName || streamNotice || 'Local / OTT Sync'}
+                {source.type === 'localStream'
+                  ? `${source.fileName || 'Local stream'} (${prettySize(source.sizeBytes)}, ${prettyDuration(source.durationSec)})`
+                  : source.url}
               </p>
               {streamNotice && (
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   {streamNotice}
                 </p>
               )}
-              {!isHost && (
+              {!canChangeSource && (
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  {roomSourceType === 'localStream'
+                  {source.type === 'localStream'
                     ? 'The stream is controlled by the host.'
                     : 'The host controls playback. Heartbeats keep this player in sync.'}
                 </p>
@@ -299,7 +430,6 @@ export default function RoomPage() {
           )}
         </div>
 
-        {/* Right column: chat + participants + optional call */}
         <div className="content-column">
           {showCall && (
             <VideoCallPanel
@@ -315,11 +445,11 @@ export default function RoomPage() {
           />
 
           <UserList
-            initialParticipants={room.participants}
-            hostUserId={room.hostUserId}
+            initialParticipants={room.participants || []}
+            hostUserId={room.ownerGuestId}
             currentUserEmail={guestId}
             roomCode={code}
-            isStreaming={roomSourceType === 'localStream'}
+            isStreaming={source?.type === 'localStream'}
           />
         </div>
       </div>
@@ -333,95 +463,7 @@ export default function RoomPage() {
                 Close
               </button>
             </div>
-
-            <div style={{ display: 'grid', gap: 14 }}>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Source type</span>
-                <select className="select" value={sourceTypeDraft} onChange={(event) => setSourceTypeDraft(event.target.value as SourceType)}>
-                  <option value="youtube">YouTube Video</option>
-                  <option value="localStream">Stream local file</option>
-                  <option value="local">MP4 / Local Link</option>
-                  <option value="ott-sync">OTT Sync</option>
-                </select>
-              </label>
-
-              {sourceTypeDraft === 'ott-sync' ? (
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Platform</span>
-                  <select className="select" value={ottPlatformDraft} onChange={(event) => setOttPlatformDraft(event.target.value)}>
-                    <option value="netflix">Netflix</option>
-                    <option value="prime">Prime Video</option>
-                    <option value="hotstar">Hotstar</option>
-                  </select>
-                </label>
-              ) : sourceTypeDraft === 'localStream' ? (
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Stream local file</span>
-                  <input
-                    type="file"
-                    accept="video/*,.mkv,.avi,.mov,.m4v,.webm,.ogv"
-                    className="input"
-                    style={{ padding: '8px' }}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] || null;
-                      setLocalStreamFileDraft(file);
-                      setSourceMessage('');
-                    }}
-                  />
-                  {localStreamFileDraft && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--primary)', overflowWrap: 'anywhere' }}>
-                      Selected: {localStreamFileDraft.name} ({prettySize(localStreamFileDraft.size)})
-                    </div>
-                  )}
-                </label>
-              ) : sourceTypeDraft === 'local' ? (
-                <div style={{ display: 'grid', gap: 14 }}>
-                  <label style={{ display: 'grid', gap: 6 }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Local File</span>
-                    <input
-                      type="file"
-                      accept="video/*"
-                      className="input"
-                      style={{ padding: '8px' }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) setLocalFileDraft({ name: file.name, size: file.size });
-                      }}
-                    />
-                    {localFileDraft && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>
-                        Selected: {localFileDraft.name} ({(localFileDraft.size / 1024 / 1024).toFixed(1)} MB)
-                      </div>
-                    )}
-                  </label>
-                  <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>OR</div>
-                  <label style={{ display: 'grid', gap: 6 }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Video URL (MP4/HLS)</span>
-                    <input
-                      className="input"
-                      value={sourceUrlDraft}
-                      onChange={(event) => setSourceUrlDraft(event.target.value)}
-                      placeholder="https://example.com/video.mp4"
-                    />
-                  </label>
-                </div>
-              ) : (
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>YouTube URL</span>
-                  <input
-                    className="input"
-                    value={sourceUrlDraft}
-                    onChange={(event) => setSourceUrlDraft(event.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                  />
-                </label>
-              )}
-
-              <button className="button" onClick={saveSource}>
-                {sourceTypeDraft === 'localStream' ? 'Start streaming' : 'Save Source'}
-              </button>
-              {sourceMessage && <p style={{ margin: 0, color: '#ef4444' }}>{sourceMessage}</p>}
-            </div>
+            {sourcePicker}
           </div>
         </div>
       )}

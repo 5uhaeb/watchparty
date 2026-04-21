@@ -1,10 +1,6 @@
 const API = process.env.NEXT_PUBLIC_API_URL;
 
-export async function createRoom(payload: {
-  name: string;
-  sourceType: 'youtube' | 'local' | 'localStream' | 'ott-sync';
-  sourceData: { url?: string; fileName?: string; sizeBytes?: number; durationSec?: number; ottPlatform?: string };
-}) {
+export async function createRoom(payload: { title?: string } = {}) {
   const res = await fetch(`${API}/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

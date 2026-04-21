@@ -31,14 +31,23 @@ function canControlRoom(room, userId) {
     (p) => p.userId === userId || p.name === userId
   );
 
-  return participant || room.hostUserId === userId;
+  return participant || room.ownerGuestId === userId || room.adminGuestIds?.includes(userId);
 }
 
 function isRoomMember(room, userId) {
   if (!room || !userId) return false;
   return (
-    room.hostUserId === userId ||
+    room.ownerGuestId === userId ||
+    room.adminGuestIds?.includes(userId) ||
     room.participants?.some((p) => p.userId === userId || p.name === userId)
+  );
+}
+
+function can(room, userId, permission) {
+  if (permission !== 'changeSource') return false;
+  return !!userId && (
+    room.ownerGuestId === userId ||
+    room.adminGuestIds?.includes(userId)
   );
 }
 
@@ -46,7 +55,47 @@ function isValidLocalStreamFileName(fileName) {
   return typeof fileName === 'string' && fileName.trim() && !/[/\\:]/.test(fileName);
 }
 
-function emitSourceChanged(io, roomCode, room, source = { type: room.sourceType, data: room.sourceData }) {
+function extractYouTubeVideoId(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || null;
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      return url.searchParams.get('v') || null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeSource(payload, socketId) {
+  if (!payload || payload.type === 'clear') return null;
+
+  if (payload.type === 'youtube') {
+    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId) throw new Error('Enter a valid YouTube URL');
+    return { type: 'youtube', url, videoId };
+  }
+
+  if (payload.type === 'localStream') {
+    if (!isValidLocalStreamFileName(payload.fileName)) {
+      throw new Error('fileName must not contain path separators');
+    }
+    return {
+      type: 'localStream',
+      fileName: payload.fileName.trim(),
+      sizeBytes: Number(payload.sizeBytes) || 0,
+      durationSec: Number(payload.durationSec) || 0,
+      hostSocketId: socketId,
+    };
+  }
+
+  throw new Error('Unsupported source type');
+}
+
+function emitSourceChanged(io, roomCode, room, source = room.source || null) {
   io.to(roomCode).emit('room:state', { room });
   io.to(roomCode).emit('source:changed', { source, room });
   io.to(roomCode).emit('room:sourceChanged', { source, room });
@@ -58,20 +107,20 @@ async function clearLocalStreamIfHostedBy(io, roomCode, socketId, updatedBy = 'u
   const room = await Room.findOne({ code: roomCode, isActive: true });
   if (
     !room ||
-    room.sourceType !== 'localStream' ||
-    room.sourceData?.hostSocketId !== socketId
+    room.source?.type !== 'localStream' ||
+    room.source?.hostSocketId !== socketId
   ) {
     return room;
   }
 
-  room.sourceType = 'youtube';
-  room.sourceData = {};
+  room.source = null;
   room.playback = {
     isPlaying: false,
     currentTime: 0,
     updatedAt: new Date(),
     updatedBy,
   };
+  room.lastActivityAt = new Date();
   await room.save();
   emitSourceChanged(io, roomCode, room, null);
   return room;
@@ -127,13 +176,10 @@ function getCompensatedPosition(playback = {}) {
 function serializePlayerState(room) {
   const playback = room.playback || {};
   return {
-    source: {
-      type: room.sourceType,
-      data: room.sourceData,
-    },
+    source: room.source || null,
     positionSec: getCompensatedPosition(playback),
     isPlaying: !!playback.isPlaying,
-    hostUserId: room.hostUserId,
+    hostUserId: room.ownerGuestId,
     serverTs: Date.now(),
   };
 }
@@ -171,7 +217,7 @@ function registerRoomSocket(io, socket) {
 
     if (!room) return;
 
-    socket.isHost = room.hostUserId === guestId;
+    socket.isHost = room.ownerGuestId === guestId;
 
     const messages = await Message.find({ roomId: room._id })
       .sort({ createdAt: -1, _id: -1 })
@@ -362,7 +408,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!room || room.hostUserId !== actorUserId) return;
+    if (!room || room.ownerGuestId !== actorUserId) return;
 
     const atServerTs = Date.now();
     const nextPosition = Number(positionSec || 0);
@@ -401,59 +447,35 @@ function registerRoomSocket(io, socket) {
     socket.emit('player:state', payload);
   });
 
-  socket.on('source:change', async ({ roomCode, userId, sourceType, sourceData = {} }) => {
-    const targetRoomCode = getRoomCode(socket, roomCode);
-    const actorUserId = getUserId(socket, userId);
-    if (!['youtube', 'local', 'localStream', 'ott-sync'].includes(sourceType)) return;
-    if (sourceData.fileName && !isValidLocalStreamFileName(sourceData.fileName)) return;
-
-    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
-    if (!room || room.hostUserId !== actorUserId) return;
-
-    room.sourceType = sourceType;
-    room.sourceData = sourceData;
-    room.playback = {
-      isPlaying: false,
-      currentTime: 0,
-      updatedAt: new Date(),
-      updatedBy: actorUserId || 'unknown',
-    };
-    await room.save();
-
-    emitSourceChanged(io, targetRoomCode, room);
-  });
-
-  socket.on('room:startLocalStream', async ({ fileName, sizeBytes, durationSec }) => {
+  socket.on('room:setSource', async (payload = {}) => {
     const targetRoomCode = socket.roomCode;
     if (!targetRoomCode) return;
-
-    if (!isValidLocalStreamFileName(fileName)) {
-      socket.emit('error:validation', { message: 'Invalid fileName' });
-      return;
-    }
 
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     if (!room) return;
 
     const actorUserId = getUserId(socket);
-    if (room.hostUserId !== actorUserId) return;
+    if (!can(room, actorUserId, 'changeSource')) return;
 
-    room.sourceType = 'localStream';
-    room.sourceData = {
-      fileName: fileName.trim(),
-      sizeBytes: Number(sizeBytes) || 0,
-      durationSec: Number(durationSec) || 0,
-      hostSocketId: socket.id,
-    };
+    let source;
+    try {
+      source = normalizeSource(payload, socket.id);
+    } catch (error) {
+      socket.emit('error:validation', { message: error.message });
+      return;
+    }
+
+    room.source = source;
     room.playback = {
       isPlaying: false,
       currentTime: 0,
       updatedAt: new Date(),
       updatedBy: actorUserId || 'unknown',
     };
+    room.lastActivityAt = new Date();
     await room.save();
 
-    emitSourceChanged(io, targetRoomCode, room);
+    emitSourceChanged(io, targetRoomCode, room, source);
   });
 
   socket.on('room:stopLocalStream', async () => {
@@ -464,17 +486,17 @@ function registerRoomSocket(io, socket) {
     if (!room) return;
 
     const actorUserId = getUserId(socket);
-    if (room.hostUserId !== actorUserId) return;
-    if (room.sourceType !== 'localStream') return;
+    if (!can(room, actorUserId, 'changeSource')) return;
+    if (room.source?.type !== 'localStream') return;
 
-    room.sourceType = 'youtube';
-    room.sourceData = {};
+    room.source = null;
     room.playback = {
       isPlaying: false,
       currentTime: 0,
       updatedAt: new Date(),
       updatedBy: actorUserId || 'unknown',
     };
+    room.lastActivityAt = new Date();
     await room.save();
 
     emitSourceChanged(io, targetRoomCode, room, null);
@@ -487,10 +509,10 @@ function registerRoomSocket(io, socket) {
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     const actorUserId = getUserId(socket);
     if (!room || !isRoomMember(room, actorUserId)) return;
-    if (room.sourceType !== 'localStream' || !room.sourceData?.hostSocketId) return;
-    if (room.sourceData.hostSocketId === socket.id) return;
+    if (room.source?.type !== 'localStream' || !room.source?.hostSocketId) return;
+    if (room.source.hostSocketId === socket.id) return;
 
-    io.to(room.sourceData.hostSocketId).emit('webrtc:viewerReady', {
+    io.to(room.source.hostSocketId).emit('webrtc:viewerReady', {
       viewerSocketId: socket.id,
     });
   });
@@ -506,7 +528,7 @@ function registerRoomSocket(io, socket) {
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
     const actorUserId = getUserId(socket);
     if (!room || !isRoomMember(room, actorUserId)) return;
-    if (room.sourceType !== 'localStream') return;
+    if (room.source?.type !== 'localStream') return;
 
     io.to(toSocketId).emit('webrtc:signal', {
       fromSocketId: socket.id,
@@ -524,7 +546,7 @@ function registerRoomSocket(io, socket) {
       (p) => p.userId === userId || p.name === userId
     );
 
-    const isHost = room.hostUserId === userId;
+    const isHost = room.ownerGuestId === userId || room.adminGuestIds?.includes(userId);
 
     if (!participant && !isHost) return;
 
@@ -549,7 +571,7 @@ function registerRoomSocket(io, socket) {
   socket.on('room:kick', async ({ roomCode, targetName }) => {
     const hostUserId = getUserId(socket);
     const room = await Room.findOne({ code: roomCode });
-    if (!room || room.hostUserId !== hostUserId) return;
+    if (!room || !can(room, hostUserId, 'changeSource')) return;
 
     const socketsInRoom = await io.in(roomCode).fetchSockets();
 
@@ -625,7 +647,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
-    if (!room || room.hostUserId !== actorUserId) return;
+    if (!room || !can(room, actorUserId, 'changeSource')) return;
 
     room.isActive = false;
     await room.save();

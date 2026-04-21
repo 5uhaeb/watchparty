@@ -78,7 +78,7 @@ export default function LocalStreamPlayer({
     }
 
     if (emitStop) {
-      socket.emit('room:stopLocalStream');
+      socket.emit('room:setSource', { type: 'clear' });
     }
   }, [closeHostPeers]);
 
@@ -150,7 +150,8 @@ export default function LocalStreamPlayer({
       const stream = captureHostStream();
       if (!stream) return;
 
-      socket.emit('room:startLocalStream', {
+      socket.emit('room:setSource', {
+        type: 'localStream',
         fileName: file.name,
         sizeBytes: file.size,
         durationSec: Number.isFinite(video.duration) ? video.duration : undefined,
