@@ -212,7 +212,7 @@ export default function RoomPage() {
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button className="button button-secondary" onClick={copyInviteLink} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-            {copied ? '✓ Copied!' : '🔗 Invite Link'}
+            {copied ? 'Copied' : 'Invite link'}
           </button>
           <button className="button button-secondary" onClick={openInviteModal} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
             Invite Friend
@@ -227,7 +227,7 @@ export default function RoomPage() {
             onClick={() => setShowCall(p => !p)}
             style={{ padding: '8px 16px', fontSize: '0.85rem', background: showCall ? 'rgba(59,130,246,0.15)' : undefined }}
           >
-            📹 {showCall ? 'Hide Call' : 'Video Call'}
+            {showCall ? 'Hide call' : 'Video call'}
           </button>
           <div className="button button-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', pointerEvents: 'none' }}>
             {roomSourceType.toUpperCase()}

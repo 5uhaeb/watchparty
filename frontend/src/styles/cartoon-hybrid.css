@@ -1,0 +1,316 @@
+/* ============================================================
+   Cartoon-Hybrid Design System v1
+   ----------------------------------------------------------
+   Modern layout + cartoon-outlined components +
+   comic-book accent colors + geometric display headings.
+
+   Drop this file into any project, import it after your
+   reset/normalize, and use the primitive classes below.
+
+   Works in: vanilla HTML, React, Vue, Svelte, Next.js, etc.
+   No dependencies. No build step required (it's plain CSS).
+   ============================================================ */
+
+
+/* ---------- 1. Font loading (optional — delete if loading yourself) ---------- */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+
+/* ---------- 2. Design tokens ---------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg:        #fdf6e3;   /* warm cream page — never pure white */
+  --surface:   #ffffff;   /* card fills */
+  --surface-2: #faf3df;   /* muted panels */
+  --surface-3: #f5ecc8;   /* hover/active */
+
+  /* Ink (text + outlines in light mode) */
+  --ink:       #0b0f1a;
+  --ink-soft:  #2a3142;
+  --ink-mute:  #5a6478;
+
+  /* Outlines & shadows — the cartoon signature */
+  --outline:        #0b0f1a;
+  --outline-strong: #0b0f1a;
+  --outline-w:      2.5px;
+  --outline-thin:   2px;
+  --shadow-lg:      5px 5px 0 0 var(--outline);
+  --shadow-md:      4px 4px 0 0 var(--outline);
+  --shadow-sm:      3px 3px 0 0 var(--outline);
+  --shadow-xs:      2px 2px 0 0 var(--outline);
+  --shadow-pressed: 1px 1px 0 0 var(--outline);
+
+  /* Comic-book accents */
+  --red:        #ff3b3b;
+  --red-ink:    #9a1515;
+  --blue:       #2f6bff;
+  --blue-ink:   #123c9a;
+  --yellow:     #ffd93b;
+  --yellow-ink: #6b4b00;
+  --green:      #2aa56a;
+  --green-ink:  #0e5a38;
+
+  /* Inputs */
+  --input-bg: #ffffff;
+  --ring:     0 0 0 3px rgba(47,107,255,0.35);
+
+  /* Radii */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  /* Motion */
+  --easing: cubic-bezier(0.2, 0, 0, 1);
+  --dur:    120ms;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg:        #0d1424;
+  --surface:   #18213a;
+  --surface-2: #141b30;
+  --surface-3: #22304d;
+
+  --ink:       #e8e2cc;
+  --ink-soft:  #c2bba0;
+  --ink-mute:  #7d869f;
+
+  /* Softer outlines in dark mode — cards should separate via lightness,
+     not bright borders. This is the single most important difference. */
+  --outline:        #3a4667;
+  --outline-strong: #5a6b94;
+  --outline-w:      1.5px;
+  --outline-thin:   1px;
+  --shadow-lg:      4px 4px 0 0 rgba(0,0,0,0.55);
+  --shadow-md:      3px 3px 0 0 rgba(0,0,0,0.50);
+  --shadow-sm:      2px 2px 0 0 rgba(0,0,0,0.45);
+  --shadow-xs:      1px 1px 0 0 rgba(0,0,0,0.40);
+  --shadow-pressed: 1px 1px 0 0 rgba(0,0,0,0.30);
+
+  --red:        #ff5e5e;
+  --red-ink:    #ffd6d6;
+  --blue:       #6a9bff;
+  --blue-ink:   #d6e3ff;
+  --yellow:     #ffd93b;
+  --yellow-ink: #fff3b0;
+  --green:      #55d595;
+  --green-ink:  #c8f3dc;
+
+  --input-bg: #141b30;
+  --ring:     0 0 0 3px rgba(106,155,255,0.4);
+}
+
+
+/* ---------- 3. Base ---------- */
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+h1, h2, h3, h4 {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
+::selection { background: var(--yellow); color: #0b0f1a; }
+
+
+/* ---------- 4. Component primitives ---------- */
+
+/* Cards — the core container */
+.card {
+  background: var(--surface);
+  border: var(--outline-w) solid var(--outline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+}
+.card-sm {
+  background: var(--surface);
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px;
+}
+.panel {
+  background: var(--surface-2);
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: var(--r-md);
+  padding: 12px;
+}
+
+/* Buttons — outlined base + pressed feedback */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
+  padding: 10px 16px;
+  background: var(--surface);
+  color: var(--ink);
+  border: var(--outline-w) solid var(--outline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: transform var(--dur) var(--easing), box-shadow var(--dur) var(--easing);
+  user-select: none;
+}
+.btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 0 var(--outline); }
+.btn:active { transform: translate(2px, 2px); box-shadow: var(--shadow-pressed); }
+.btn:focus-visible { outline: none; box-shadow: var(--shadow-md), var(--ring); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: var(--shadow-sm); transform: none; }
+
+.btn-primary { background: var(--red); color: #fff; }
+.dark .btn-primary { color: var(--red-ink); }
+.btn-blue    { background: var(--blue); color: #fff; }
+.dark .btn-blue { color: var(--blue-ink); }
+.btn-yellow  { background: var(--yellow); color: var(--yellow-ink); }
+.btn-green   { background: var(--green); color: #fff; }
+.dark .btn-green { color: var(--green-ink); }
+.btn-sm { padding: 6px 12px; font-size: 13px; box-shadow: var(--shadow-sm); }
+
+/* Chips — pills for tags, categories, toggles */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: 999px;
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: transform var(--dur) var(--easing), box-shadow var(--dur) var(--easing);
+  user-select: none;
+}
+.chip:hover { transform: translate(-1px, -1px); box-shadow: var(--shadow-sm); }
+.chip:active { transform: translate(1px, 1px); box-shadow: var(--shadow-pressed); }
+.chip-red    { background: var(--red); color: #fff; border-color: var(--outline); }
+.chip-blue   { background: var(--blue); color: #fff; }
+.chip-yellow { background: var(--yellow); color: var(--yellow-ink); }
+.chip-green  { background: var(--green); color: #fff; }
+
+/* Inputs — outlined with focus ring */
+.input, .select, .textarea {
+  display: block;
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 14px;
+  border: var(--outline-w) solid var(--outline);
+  border-radius: var(--r-md);
+  transition: box-shadow var(--dur) var(--easing);
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  box-shadow: var(--ring);
+}
+.input::placeholder { color: var(--ink-mute); }
+
+/* Checkbox — custom 18px square */
+.checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--input-bg);
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background var(--dur) var(--easing);
+}
+.checkbox:checked {
+  background: var(--blue);
+  border-color: var(--outline);
+}
+.checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px; top: 0px;
+  width: 6px; height: 11px;
+  border-right: 2.5px solid #fff;
+  border-bottom: 2.5px solid #fff;
+  transform: rotate(45deg);
+}
+.checkbox:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* Row item — list entries (search results, saved items) */
+.row-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform var(--dur) var(--easing), box-shadow var(--dur) var(--easing);
+}
+.row-item:hover { transform: translate(-1px, -1px); box-shadow: var(--shadow-md); }
+
+/* Accent labels — tiny all-caps section headers */
+.label-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+/* Scrollbars */
+.scroll-area::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll-area::-webkit-scrollbar-track { background: var(--surface-2); border-radius: 999px; }
+.scroll-area::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+}
+
+
+/* ---------- 5. Utility classes ---------- */
+.stack-sm > * + * { margin-top: 8px; }
+.stack    > * + * { margin-top: 16px; }
+.stack-lg > * + * { margin-top: 24px; }
+
+.text-mute { color: var(--ink-mute); }
+.text-soft { color: var(--ink-soft); }
+.hard-shadow { box-shadow: var(--shadow-md); }
+.no-shadow   { box-shadow: none; }
+
+
+/* ---------- 6. Optional: brand avatar square ---------- */
+.brand-square {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  background: var(--red);
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+  border: var(--outline-w) solid var(--outline);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-sm);
+}

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import NotificationBell from './NotificationBell';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -17,6 +18,7 @@ export default function Navbar() {
         <Link href="/dashboard">Dashboard</Link>
         <Link href="/friends">Friends</Link>
         <Link href="/create-room">Create Room</Link>
+        <ThemeToggle />
         
         {session?.user ? (
           <>

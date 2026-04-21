@@ -183,7 +183,7 @@ export default function VideoCallPanel({
   if (!isInCall) {
     return (
       <div className="card glass" style={{ padding: '20px', textAlign: 'center' }}>
-        <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>📹</div>
+        <div className="label-tag" style={{ marginBottom: '8px' }}>Call</div>
         <h3 style={{ margin: '0 0 6px' }}>Video Call</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
           Talk face-to-face while you watch
@@ -233,7 +233,7 @@ export default function VideoCallPanel({
             </div>
           )}
           <div style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
-            You {!isMicOn ? '🔇' : ''}
+            You {!isMicOn ? 'Muted' : ''}
           </div>
         </div>
 
@@ -249,14 +249,14 @@ export default function VideoCallPanel({
           onClick={toggleMic}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem', background: isMicOn ? undefined : 'rgba(239,68,68,0.1)' }}
         >
-          {isMicOn ? '🎤 Mute' : '🔇 Unmute'}
+          {isMicOn ? 'Mute' : 'Unmute'}
         </button>
         <button
           className="button button-secondary"
           onClick={toggleCam}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem', background: isCamOn ? undefined : 'rgba(239,68,68,0.1)' }}
         >
-          {isCamOn ? '📹 Hide' : '🚫 Show Cam'}
+          {isCamOn ? 'Hide camera' : 'Show camera'}
         </button>
       </div>
     </div>

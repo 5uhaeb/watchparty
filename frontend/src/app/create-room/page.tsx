@@ -18,8 +18,8 @@ export default function CreateRoomPage() {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
         <div className="card glass" style={{ textAlign: 'center', maxWidth: '400px' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
-          <h2>Authentication Required</h2>
+          <div className="label-tag" style={{ marginBottom: '12px' }}>Sign in</div>
+          <h2>Authentication required</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
             Please log in to create and host your own watch party rooms.
           </p>
@@ -57,33 +57,33 @@ export default function CreateRoomPage() {
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
       <header style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <h1>Create a Room</h1>
+        <h1>Create a room</h1>
         <p style={{ color: 'var(--text-secondary)' }}>Host a synchronized viewing experience</p>
       </header>
 
       <div className="card glass" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div>
-          <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-            ROOM NAME
+          <label className="label-tag" style={{ display: 'block', marginBottom: '8px' }}>
+            Room name
           </label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Movie Night" />
         </div>
 
         <div>
-          <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-            SOURCE TYPE
+          <label className="label-tag" style={{ display: 'block', marginBottom: '8px' }}>
+            Source type
           </label>
           <select className="select" value={sourceType} onChange={(e) => setSourceType(e.target.value as 'youtube' | 'local' | 'ott-sync')}>
-            <option value="youtube">YouTube Video</option>
-            <option value="local">MP4 / Local Link</option>
-            <option value="ott-sync">OTT Sync (Netflix/Prime/Hotstar)</option>
+            <option value="youtube">YouTube video</option>
+            <option value="local">MP4 / local link</option>
+            <option value="ott-sync">OTT sync</option>
           </select>
         </div>
 
         {sourceType === 'ott-sync' ? (
           <div>
-            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              PLATFORM
+            <label className="label-tag" style={{ display: 'block', marginBottom: '8px' }}>
+              Platform
             </label>
             <select className="select" value={ottPlatform} onChange={(e) => setOttPlatform(e.target.value)}>
               <option value="netflix">Netflix</option>
@@ -91,25 +91,25 @@ export default function CreateRoomPage() {
               <option value="hotstar">Hotstar</option>
             </select>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
-              Note: OTT Sync mode is for metadata synchronization only. Content is not rebroadcasted.
+              Note: OTT sync mode is for metadata synchronization only. Content is not rebroadcasted.
             </p>
           </div>
         ) : (
           <div>
-            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-              {sourceType === 'youtube' ? 'YOUTUBE URL' : 'VIDEO URL'}
+            <label className="label-tag" style={{ display: 'block', marginBottom: '8px' }}>
+              {sourceType === 'youtube' ? 'YouTube URL' : 'Video URL'}
             </label>
-            <input 
-              className="input" 
-              value={url} 
-              onChange={(e) => setUrl(e.target.value)} 
-              placeholder={sourceType === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/video.mp4'} 
+            <input
+              className="input"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={sourceType === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/video.mp4'}
             />
           </div>
         )}
 
         <button className="button" style={{ marginTop: '12px', width: '100%' }} onClick={handleCreate} disabled={loading}>
-          {loading ? 'Initializing Experience...' : 'Create Watch Party'}
+          {loading ? 'Initializing experience...' : 'Create watch party'}
         </button>
       </div>
     </div>
