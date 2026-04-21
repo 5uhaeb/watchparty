@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 import { ICE_SERVERS } from '@/lib/iceServers';
+import { formatFileSize, formatDuration } from '@/lib/formats';
 
 type LocalStreamSource = {
   fileName?: string;
@@ -24,20 +25,6 @@ type CapturableVideo = HTMLVideoElement & {
   captureStream?: () => MediaStream;
   mozCaptureStream?: () => MediaStream;
 };
-
-function prettySize(bytes?: number) {
-  if (!bytes) return 'unknown size';
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function prettyDuration(seconds?: number) {
-  if (!seconds || !Number.isFinite(seconds)) return 'unknown duration';
-  const total = Math.round(seconds);
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
 
 export default function LocalStreamPlayer({
   roomCode,
@@ -301,7 +288,7 @@ export default function LocalStreamPlayer({
         <div className="card glass">
           <h3 style={{ margin: '0 0 8px' }}>Streaming local file</h3>
           <p style={{ color: 'var(--text-secondary)', margin: 0, overflowWrap: 'anywhere' }}>
-            {fileName} ({prettySize(sizeBytes)}, {prettyDuration(durationSec)})
+            {fileName} ({formatFileSize(sizeBytes)}, {formatDuration(durationSec)})
           </p>
           <p style={{ color: 'var(--text-secondary)', margin: '8px 0 0', fontSize: '0.85rem' }}>
             {status}
@@ -316,7 +303,7 @@ export default function LocalStreamPlayer({
       <div className="card glass">
         <h3 style={{ margin: '0 0 8px' }}>Host is streaming</h3>
         <p style={{ color: 'var(--text-secondary)', margin: 0, overflowWrap: 'anywhere' }}>
-          {fileName} ({prettySize(sizeBytes)}, {prettyDuration(durationSec)})
+          {fileName} ({formatFileSize(sizeBytes)}, {formatDuration(durationSec)})
         </p>
         <p style={{ color: 'var(--text-secondary)', margin: '8px 0 0', fontSize: '0.85rem' }}>
           {status}

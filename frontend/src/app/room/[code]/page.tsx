@@ -4,27 +4,16 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { socket } from '@/lib/socket';
 import { getRoom } from '@/lib/api';
+import { probeVideoFile, type ProbeResult } from '@/lib/probeFile';
+import { formatFileSize, formatDuration, formatDimensions } from '@/lib/formats';
 import ChatBox from '@/components/ChatBox';
 import RoomPlayer from '@/components/RoomPlayer';
 import UserList from '@/components/UserList';
 import VideoCallPanel from '@/components/VideoCallPanel';
+import FileError from '@/components/FileError';
 import { useGuest } from '@/components/GuestProvider';
 
 type SourceTab = 'youtube' | 'localStream';
-
-function prettySize(bytes?: number) {
-  if (!bytes) return 'unknown size';
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function prettyDuration(seconds?: number) {
-  if (!seconds || !Number.isFinite(seconds)) return 'unknown duration';
-  const total = Math.round(seconds);
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
 
 export default function RoomPage() {
   const params = useParams();
@@ -43,6 +32,8 @@ export default function RoomPage() {
   const [sourceMessage, setSourceMessage] = useState('');
   const [localStreamFileDraft, setLocalStreamFileDraft] = useState<File | null>(null);
   const [localStreamFile, setLocalStreamFile] = useState<File | null>(null);
+  const [fileProbeResult, setFileProbeResult] = useState<ProbeResult | null>(null);
+  const [fileProbing, setFileProbing] = useState(false);
   const [streamNotice, setStreamNotice] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -206,6 +197,10 @@ export default function RoomPage() {
         setSourceMessage('Choose a local video file to stream.');
         return;
       }
+      if (!fileProbeResult?.success) {
+        setSourceMessage('File did not pass compatibility check. Please choose a different file.');
+        return;
+      }
       setLocalStreamFile(localStreamFileDraft);
       setStreamNotice('');
       setShowSourceModal(false);
@@ -236,6 +231,28 @@ export default function RoomPage() {
     setShowSourceModal(true);
   };
 
+  const handleFileDropped = async (file: File) => {
+    if (!canChangeSource) {
+      setStreamNotice('Only the host can change the source.');
+      return;
+    }
+
+    if (!file.type.startsWith('video/') && !file.name.match(/\.(mkv|avi|mov|m4v|webm|ogv)$/i)) {
+      setStreamNotice('Please drop a video file.');
+      return;
+    }
+
+    setSourceTab('localStream');
+    setShowSourceModal(true);
+    setLocalStreamFileDraft(file);
+    setFileProbeResult(null);
+
+    setFileProbing(true);
+    const result = await probeVideoFile(file);
+    setFileProbeResult(result);
+    setFileProbing(false);
+  };
+
   const sourcePicker = (
     <div style={{ display: 'grid', gap: 14 }}>
       <div className="player-toolbar" style={{ justifyContent: 'center' }}>
@@ -261,15 +278,40 @@ export default function RoomPage() {
             accept="video/*,.mkv,.avi,.mov,.m4v,.webm,.ogv"
             className="input"
             style={{ padding: '8px' }}
-            onChange={(event) => {
+            onChange={async (event) => {
               const file = event.target.files?.[0] || null;
               setLocalStreamFileDraft(file);
+              setFileProbeResult(null);
               setSourceMessage('');
+              
+              if (file) {
+                setFileProbing(true);
+                const result = await probeVideoFile(file);
+                setFileProbeResult(result);
+                setFileProbing(false);
+              }
             }}
           />
-          {localStreamFileDraft && (
+          {fileProbing && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              ⏳ Checking file compatibility...
+            </div>
+          )}
+          {fileProbeResult && !fileProbeResult.success && (
+            <FileError
+              error={fileProbeResult.error || ''}
+              ffmpegCommand={fileProbeResult.ffmpegCommand}
+              onDismiss={() => {
+                setLocalStreamFileDraft(null);
+                setFileProbeResult(null);
+              }}
+            />
+          )}
+          {localStreamFileDraft && fileProbeResult?.success && (
             <div style={{ fontSize: '0.8rem', color: 'var(--primary)', overflowWrap: 'anywhere' }}>
-              Selected: {localStreamFileDraft.name} ({prettySize(localStreamFileDraft.size)})
+              ✓ {localStreamFileDraft.name} · {formatFileSize(localStreamFileDraft.size)} ·{' '}
+              {formatDuration(fileProbeResult.metadata?.duration || 0)} ·{' '}
+              {formatDimensions(fileProbeResult.metadata?.width || 0, fileProbeResult.metadata?.height || 0)}
             </div>
           )}
         </label>
@@ -286,7 +328,11 @@ export default function RoomPage() {
         </label>
       )}
 
-      <button className="button" onClick={submitSource}>
+      <button
+        className="button"
+        onClick={submitSource}
+        disabled={sourceTab === 'localStream' && (fileProbing || !localStreamFileDraft || !fileProbeResult?.success)}
+      >
         {sourceTab === 'localStream' ? 'Start streaming' : 'Play YouTube'}
       </button>
       {source && (
@@ -388,7 +434,19 @@ export default function RoomPage() {
       </div>
 
       <div className="row">
-        <div className="content-column">
+        <div
+          className="content-column"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const file = e.dataTransfer.files?.[0];
+            if (file) handleFileDropped(file);
+          }}
+        >
           {activeSourceType ? (
             <RoomPlayer
               roomCode={code}
@@ -436,7 +494,7 @@ export default function RoomPage() {
               <h3 style={{ margin: '0 0 8px' }}>Now Watching</h3>
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
                 {source.type === 'localStream'
-                  ? `${source.fileName || 'Local stream'} (${prettySize(source.sizeBytes)}, ${prettyDuration(source.durationSec)})`
+                  ? `${source.fileName || 'Local stream'} (${formatFileSize(source.sizeBytes)}, ${formatDuration(source.durationSec)})`
                   : source.url}
               </p>
               {streamNotice && (
