@@ -1,6 +1,20 @@
 const Message = require('../models/Message');
 const Room = require('../models/Room');
 
+function serializeMessage(message) {
+  return {
+    id: message._id,
+    _id: message._id,
+    roomId: message.roomId,
+    userId: message.userId,
+    username: message.username,
+    userName: message.username,
+    text: message.text,
+    type: message.type,
+    createdAt: message.createdAt,
+  };
+}
+
 function registerRoomSocket(io, socket) {
   socket.on('room:join', async ({ roomCode, user }) => {
     socket.join(roomCode);
@@ -24,12 +38,13 @@ function registerRoomSocket(io, socket) {
 
     socket.isHost = room.hostUserId === (user.id || user.name);
 
-    const messages = await Message.find({ roomCode })
-      .sort({ createdAt: 1 })
+    const messages = await Message.find({ roomId: room._id })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(50);
 
     // full state only to the user who joined
-    socket.emit('room:state', { room, messages });
+    socket.emit('room:state', { room });
+    socket.emit('chat:history', messages.reverse().map(serializeMessage));
 
     // lightweight participant update + system message to everyone else
     socket.to(roomCode).emit('room:state', {
@@ -53,22 +68,30 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('chat:send', async ({ roomCode, userName, text }) => {
-    if (!text || !text.trim()) return;
+    if (!text) return;
 
-    const trimmed = text.trim().slice(0, 500);
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length > 500) return;
+
+    const targetRoomCode = roomCode || socket.roomCode;
+    if (!targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room) return;
+
+    const userId = socket.userData?.id || userName;
+    const username = socket.userData?.name || userName;
 
     const saved = await Message.create({
-      roomCode,
-      userName,
+      roomId: room._id,
+      userId,
+      username,
       text: trimmed,
+      type: 'chat',
     });
 
-    io.to(roomCode).emit('chat:new', {
-      _id: saved._id,
-      roomCode,
-      userName,
-      text: trimmed,
-      createdAt: saved.createdAt,
+    io.to(targetRoomCode).emit('chat:new', {
+      ...serializeMessage(saved),
     });
   });
 

@@ -2,13 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
+import { getRoomMessages } from '@/lib/api';
 
 type Message = {
+  id?: string;
   _id?: string;
-  userName: string;
+  userName?: string;
+  username?: string;
   text: string;
   createdAt?: string;
   isSystem?: boolean;
+  type?: 'chat' | 'system';
 };
 
 export default function ChatBox({
@@ -23,17 +27,38 @@ export default function ChatBox({
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [text, setText] = useState('');
   const [shouldStickToBottom, setShouldStickToBottom] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(true);
 
   const scrollBoxRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<Message[]>(initialMessages);
+
+  const messageKey = (message: Message) =>
+    message.id || message._id || `${message.username || message.userName}-${message.createdAt}-${message.text}`;
+
+  const mergeMessages = (current: Message[], incoming: Message[], position: 'append' | 'prepend' | 'replace') => {
+    if (position === 'replace') return incoming;
+
+    const seen = new Set(current.map(messageKey));
+    const unique = incoming.filter((message) => !seen.has(messageKey(message)));
+    return position === 'prepend' ? [...unique, ...current] : [...current, ...unique];
+  };
 
   useEffect(() => {
     setMessages(initialMessages);
+    messagesRef.current = initialMessages;
   }, [initialMessages]);
 
   useEffect(() => {
     const handleNewMessage = (message: Message) => {
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => mergeMessages(prev, [message], 'append'));
+    };
+
+    const handleHistory = (history: Message[]) => {
+      setMessages((prev) => mergeMessages(prev, history, prev.length ? 'prepend' : 'replace'));
+      setShouldStickToBottom(true);
+      setHasOlder(history.length >= 50);
     };
 
     const handleRoomState = (payload: any) => {
@@ -52,18 +77,53 @@ export default function ChatBox({
     };
 
     socket.on('chat:new', handleNewMessage);
+    socket.on('chat:history', handleHistory);
     socket.on('room:state', handleRoomState);
 
     return () => {
       socket.off('chat:new', handleNewMessage);
+      socket.off('chat:history', handleHistory);
       socket.off('room:state', handleRoomState);
     };
   }, []);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (!shouldStickToBottom) return;
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, shouldStickToBottom]);
+
+  const loadOlderMessages = async () => {
+    const box = scrollBoxRef.current;
+    const oldestLoaded = messagesRef.current.find((message) => !message.isSystem && message.createdAt);
+    if (!box || !oldestLoaded?.createdAt || loadingOlder || !hasOlder) return;
+
+    setLoadingOlder(true);
+    const previousScrollHeight = box.scrollHeight;
+
+    try {
+      const olderNewestFirst = await getRoomMessages(roomCode, {
+        limit: 50,
+        before: oldestLoaded.createdAt,
+      });
+      const olderChronological = [...olderNewestFirst].reverse();
+
+      setHasOlder(olderNewestFirst.length >= 50);
+      setMessages((prev) => mergeMessages(prev, olderChronological, 'prepend'));
+
+      requestAnimationFrame(() => {
+        if (!scrollBoxRef.current) return;
+        scrollBoxRef.current.scrollTop = scrollBoxRef.current.scrollHeight - previousScrollHeight;
+      });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   const handleScroll = () => {
     const box = scrollBoxRef.current;
@@ -73,6 +133,10 @@ export default function ChatBox({
       box.scrollHeight - box.scrollTop - box.clientHeight;
 
     setShouldStickToBottom(distanceFromBottom < 80);
+
+    if (box.scrollTop <= 20) {
+      loadOlderMessages();
+    }
   };
 
   const sendMessage = () => {
@@ -81,7 +145,7 @@ export default function ChatBox({
     socket.emit('chat:send', {
       roomCode,
       userName: currentUserName,
-      text,
+      text: text.trim(),
     });
 
     setText('');
@@ -107,7 +171,7 @@ export default function ChatBox({
       >
         {messages.map((message, index) => (
           <div
-            key={message._id || `${message.userName}-${index}-${message.text}`}
+            key={messageKey(message) || index}
             style={{
               padding: '10px 12px',
               borderRadius: 12,
@@ -118,7 +182,7 @@ export default function ChatBox({
           >
             {!message.isSystem && (
               <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {message.userName}
+                {message.username || message.userName}
               </div>
             )}
             <div>{message.text}</div>

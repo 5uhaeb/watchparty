@@ -1,5 +1,6 @@
 const express = require('express');
 const Room = require('../models/Room');
+const Message = require('../models/Message');
 
 const router = express.Router();
 
@@ -10,6 +11,37 @@ function generateCode(length = 6) {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+function parseLimit(value, fallback = 50) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, 100);
+}
+
+async function findRoomByIdOrCode(id) {
+  const code = id.toUpperCase();
+  const query = { isActive: true };
+
+  if (id.match(/^[a-f\d]{24}$/i)) {
+    return Room.findOne({ ...query, _id: id });
+  }
+
+  return Room.findOne({ ...query, code });
+}
+
+function serializeMessage(message) {
+  return {
+    id: message._id,
+    _id: message._id,
+    roomId: message.roomId,
+    userId: message.userId,
+    username: message.username,
+    userName: message.username,
+    text: message.text,
+    type: message.type,
+    createdAt: message.createdAt
+  };
 }
 
 // Create room
@@ -36,6 +68,33 @@ router.post('/', async (req, res) => {
     });
 
     res.status(201).json(room);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get recent room messages, newest first
+router.get('/:id/messages', async (req, res) => {
+  try {
+    const room = await findRoomByIdOrCode(req.params.id);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    const limit = parseLimit(req.query.limit);
+    const filter = { roomId: room._id };
+
+    if (req.query.before) {
+      const before = new Date(req.query.before);
+      if (Number.isNaN(before.getTime())) {
+        return res.status(400).json({ message: 'before must be a valid ISO date' });
+      }
+      filter.createdAt = { $lt: before };
+    }
+
+    const messages = await Message.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit);
+
+    res.json(messages.map(serializeMessage));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

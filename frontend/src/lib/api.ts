@@ -23,3 +23,19 @@ export async function getRoom(code: string) {
   if (!res.ok) throw new Error('Room not found');
   return res.json();
 }
+
+export async function getRoomMessages(
+  roomIdOrCode: string,
+  options: { limit?: number; before?: string } = {}
+) {
+  const params = new URLSearchParams();
+  params.set('limit', String(options.limit ?? 50));
+  if (options.before) params.set('before', options.before);
+
+  const res = await fetch(
+    `${API}/rooms/${encodeURIComponent(roomIdOrCode)}/messages?${params.toString()}`,
+    { cache: 'no-store' }
+  );
+  if (!res.ok) throw new Error('Failed to load messages');
+  return res.json();
+}
