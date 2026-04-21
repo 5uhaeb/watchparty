@@ -164,6 +164,41 @@ router.post('/:id/invites', async (req, res) => {
   }
 });
 
+router.patch('/:id/source', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { sourceType, sourceData = {} } = req.body;
+    if (!userId) return res.status(400).json({ message: 'userId is required' });
+    if (!['youtube', 'local', 'ott-sync'].includes(sourceType)) {
+      return res.status(400).json({ message: 'Invalid sourceType' });
+    }
+
+    const room = await findRoomByIdOrCode(req.params.id);
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+    if (room.hostUserId !== userId) return res.status(403).json({ message: 'Only the host can change source' });
+
+    room.sourceType = sourceType;
+    room.sourceData = sourceData;
+    room.playback = {
+      isPlaying: false,
+      currentTime: 0,
+      updatedAt: new Date(),
+      updatedBy: userId
+    };
+    await room.save();
+
+    req.app.get('io')?.to(room.code).emit('room:state', { room });
+    req.app.get('io')?.to(room.code).emit('source:changed', {
+      source: { type: room.sourceType, data: room.sourceData },
+      room
+    });
+
+    res.json(room);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Get room by code
 router.get('/:code', async (req, res) => {
   try {
@@ -187,6 +222,11 @@ router.delete('/:code', async (req, res) => {
 
     room.isActive = false;
     await room.save();
+
+    req.app.get('io')?.to(room.code).emit('room:ended', {
+      roomCode: room.code,
+      byUserId: hostUserId
+    });
 
     res.json({ message: 'Room closed' });
   } catch (error) {

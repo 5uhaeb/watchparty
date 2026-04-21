@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { socket } from '@/lib/socket';
@@ -23,6 +23,11 @@ export default function RoomPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [friends, setFriends] = useState<any[]>([]);
   const [inviteMessage, setInviteMessage] = useState('');
+  const [showSourceModal, setShowSourceModal] = useState(false);
+  const [sourceTypeDraft, setSourceTypeDraft] = useState<'youtube' | 'local' | 'ott-sync'>('youtube');
+  const [sourceUrlDraft, setSourceUrlDraft] = useState('');
+  const [ottPlatformDraft, setOttPlatformDraft] = useState('netflix');
+  const [sourceMessage, setSourceMessage] = useState('');
 
   const userEmail = session?.user?.email ?? '';
   const userName = session?.user?.name ?? 'Guest';
@@ -53,9 +58,19 @@ export default function RoomPage() {
       alert(reason);
       router.push('/dashboard');
     };
+    const handleEnded = () => {
+      alert('This room has ended.');
+      router.push('/dashboard');
+    };
+    const handleSourceChanged = (payload: any) => {
+      if (payload.room) setRoom(payload.room);
+      socket.emit('player:state', { roomCode: code });
+    };
 
     socket.on('room:state', handleRoomState);
     socket.on('room:kicked', handleKicked);
+    socket.on('room:ended', handleEnded);
+    socket.on('source:changed', handleSourceChanged);
     socket.io.on('reconnect', joinCurrentRoom);
 
     joinCurrentRoom();
@@ -65,10 +80,19 @@ export default function RoomPage() {
     return () => {
       socket.off('room:state', handleRoomState);
       socket.off('room:kicked', handleKicked);
+      socket.off('room:ended', handleEnded);
+      socket.off('source:changed', handleSourceChanged);
       socket.io.off('reconnect', joinCurrentRoom);
       socket.emit('room:leave');
     };
   }, [code, userEmail, userName]);
+
+  useEffect(() => {
+    if (!room) return;
+    setSourceTypeDraft((roomSourceType || 'youtube') as 'youtube' | 'local' | 'ott-sync');
+    setSourceUrlDraft(roomSourceUrl || '');
+    setOttPlatformDraft(room.sourceData?.ottPlatform || 'netflix');
+  }, [room, roomSourceType, roomSourceUrl]);
 
   const copyInviteLink = () => {
     const url = `${window.location.origin}/room/${code}`;
@@ -101,6 +125,60 @@ export default function RoomPage() {
     });
 
     setInviteMessage(res.ok ? 'Invite sent.' : (await res.json()).message || 'Invite failed.');
+  };
+
+  const leaveRoom = () => {
+    socket.emit('room:leave');
+    router.push('/dashboard');
+  };
+
+  const endRoom = async () => {
+    if (!isHost) return;
+    const confirmed = window.confirm('End this room for everyone?');
+    if (!confirmed) return;
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostUserId: userEmail }),
+    });
+
+    if (res.ok) {
+      router.push('/dashboard');
+      return;
+    }
+
+    alert((await res.json()).message || 'Could not end room.');
+  };
+
+  const saveSource = async () => {
+    setSourceMessage('');
+
+    const sourceData =
+      sourceTypeDraft === 'ott-sync'
+        ? { ottPlatform: ottPlatformDraft }
+        : { url: sourceUrlDraft.trim() };
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}/source`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': userEmail,
+      },
+      body: JSON.stringify({
+        sourceType: sourceTypeDraft,
+        sourceData,
+      }),
+    });
+
+    if (!res.ok) {
+      setSourceMessage((await res.json()).message || 'Could not update source.');
+      return;
+    }
+
+    const updatedRoom = await res.json();
+    setRoom(updatedRoom);
+    setShowSourceModal(false);
   };
 
   if (!room) {
@@ -139,6 +217,11 @@ export default function RoomPage() {
           <button className="button button-secondary" onClick={openInviteModal} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
             Invite Friend
           </button>
+          {isHost && (
+            <button className="button button-secondary" onClick={() => setShowSourceModal(true)} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+              Change Source
+            </button>
+          )}
           <button
             className="button button-secondary"
             onClick={() => setShowCall(p => !p)}
@@ -149,6 +232,14 @@ export default function RoomPage() {
           <div className="button button-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', pointerEvents: 'none' }}>
             {roomSourceType.toUpperCase()}
           </div>
+          <button className="button button-secondary" onClick={leaveRoom} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+            Leave
+          </button>
+          {isHost && (
+            <button className="button" onClick={endRoom} style={{ padding: '8px 16px', fontSize: '0.85rem', background: '#ef4444' }}>
+              End Room
+            </button>
+          )}
         </div>
       </div>
 
@@ -234,6 +325,58 @@ export default function RoomPage() {
               </div>
             )}
             {inviteMessage && <p style={{ margin: '12px 0 0', color: 'var(--primary)' }}>{inviteMessage}</p>}
+          </div>
+        </div>
+      )}
+
+      {showSourceModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', zIndex: 30 }}>
+          <div className="card glass" style={{ width: 'min(520px, calc(100vw - 32px))' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>Change Source</h3>
+              <button className="button button-secondary" onClick={() => setShowSourceModal(false)} style={{ width: 'auto', padding: '6px 10px' }}>
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 14 }}>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Source type</span>
+                <select className="select" value={sourceTypeDraft} onChange={(event) => setSourceTypeDraft(event.target.value as 'youtube' | 'local' | 'ott-sync')}>
+                  <option value="youtube">YouTube Video</option>
+                  <option value="local">MP4 / Local Link</option>
+                  <option value="ott-sync">OTT Sync</option>
+                </select>
+              </label>
+
+              {sourceTypeDraft === 'ott-sync' ? (
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Platform</span>
+                  <select className="select" value={ottPlatformDraft} onChange={(event) => setOttPlatformDraft(event.target.value)}>
+                    <option value="netflix">Netflix</option>
+                    <option value="prime">Prime Video</option>
+                    <option value="hotstar">Hotstar</option>
+                  </select>
+                </label>
+              ) : (
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    {sourceTypeDraft === 'youtube' ? 'YouTube URL' : 'Video URL'}
+                  </span>
+                  <input
+                    className="input"
+                    value={sourceUrlDraft}
+                    onChange={(event) => setSourceUrlDraft(event.target.value)}
+                    placeholder={sourceTypeDraft === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/video.mp4'}
+                  />
+                </label>
+              )}
+
+              <button className="button" onClick={saveSource}>
+                Save Source
+              </button>
+              {sourceMessage && <p style={{ margin: 0, color: '#ef4444' }}>{sourceMessage}</p>}
+            </div>
           </div>
         </div>
       )}

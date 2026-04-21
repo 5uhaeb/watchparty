@@ -356,6 +356,31 @@ function registerRoomSocket(io, socket) {
     socket.emit('player:state', payload);
   });
 
+  socket.on('source:change', async ({ roomCode, userId, sourceType, sourceData = {} }) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket, userId);
+    if (!['youtube', 'local', 'ott-sync'].includes(sourceType)) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room || room.hostUserId !== actorUserId) return;
+
+    room.sourceType = sourceType;
+    room.sourceData = sourceData;
+    room.playback = {
+      isPlaying: false,
+      currentTime: 0,
+      updatedAt: new Date(),
+      updatedBy: actorUserId || 'unknown',
+    };
+    await room.save();
+
+    io.to(targetRoomCode).emit('room:state', { room });
+    io.to(targetRoomCode).emit('source:changed', {
+      source: { type: room.sourceType, data: room.sourceData },
+      room,
+    });
+  });
+
   // anyone in the room can drive sync now
   socket.on('playback:update', async ({ roomCode, playback, userId }) => {
     const room = await Room.findOne({ code: roomCode });
@@ -458,6 +483,21 @@ function registerRoomSocket(io, socket) {
         systemMessage: `${userData.name} left the room`,
       });
     }
+  });
+
+  socket.on('room:end', async ({ roomCode, userId } = {}) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket, userId);
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room || room.hostUserId !== actorUserId) return;
+
+    room.isActive = false;
+    await room.save();
+
+    io.to(targetRoomCode).emit('room:ended', {
+      roomCode: targetRoomCode,
+      byUserId: actorUserId,
+    });
   });
 
   socket.on('disconnect', async () => {
