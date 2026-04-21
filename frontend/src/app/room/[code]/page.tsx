@@ -183,10 +183,10 @@ export default function RoomPage() {
 
   if (!room) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+      <div className="center-screen">
         <div className="card glass" style={{ padding: '40px', textAlign: 'center' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '12px' }}>⏳</div>
-          <h2>Joining Room…</h2>
+          <div className="label-tag" style={{ marginBottom: '12px' }}>Loading</div>
+          <h2>Joining Room...</h2>
           <p style={{ color: 'var(--text-secondary)' }}>Preparing your watch party experience.</p>
         </div>
       </div>
@@ -194,10 +194,10 @@ export default function RoomPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="room-page">
       {/* ── Room Header ──────────────────────────────────────────────────────── */}
-      <div className="card glass" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
+      <div className="card glass room-header">
+        <div className="room-title-block">
           <h1 style={{ margin: '0 0 4px', fontSize: '1.4rem' }}>{room.name}</h1>
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
             Code:&nbsp;
@@ -210,33 +210,33 @@ export default function RoomPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button className="button button-secondary" onClick={copyInviteLink} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+        <div className="room-actions">
+          <button className="button button-secondary" onClick={copyInviteLink}>
             {copied ? 'Copied' : 'Invite link'}
           </button>
-          <button className="button button-secondary" onClick={openInviteModal} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+          <button className="button button-secondary" onClick={openInviteModal}>
             Invite Friend
           </button>
           {isHost && (
-            <button className="button button-secondary" onClick={() => setShowSourceModal(true)} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+            <button className="button button-secondary" onClick={() => setShowSourceModal(true)}>
               Change Source
             </button>
           )}
           <button
             className="button button-secondary"
             onClick={() => setShowCall(p => !p)}
-            style={{ padding: '8px 16px', fontSize: '0.85rem', background: showCall ? 'rgba(59,130,246,0.15)' : undefined }}
+            style={{ background: showCall ? 'var(--surface-3)' : undefined }}
           >
             {showCall ? 'Hide call' : 'Video call'}
           </button>
-          <div className="button button-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', pointerEvents: 'none' }}>
+          <div className="button button-secondary source-pill">
             {roomSourceType.toUpperCase()}
           </div>
-          <button className="button button-secondary" onClick={leaveRoom} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+          <button className="button button-secondary" onClick={leaveRoom}>
             Leave
           </button>
           {isHost && (
-            <button className="button" onClick={endRoom} style={{ padding: '8px 16px', fontSize: '0.85rem', background: '#ef4444' }}>
+            <button className="button" onClick={endRoom} style={{ background: '#ef4444' }}>
               End Room
             </button>
           )}
@@ -246,7 +246,7 @@ export default function RoomPage() {
       {/* ── Main Layout ───────────────────────────────────────────────────────── */}
       <div className="row">
         {/* Left column: player */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="content-column">
           <RoomPlayer
             roomCode={code}
             videoUrl={roomSourceUrl}
@@ -272,7 +272,7 @@ export default function RoomPage() {
         </div>
 
         {/* Right column: chat + participants + optional call */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="content-column">
           {showCall && (
             <VideoCallPanel
               roomCode={code}
@@ -296,9 +296,9 @@ export default function RoomPage() {
       </div>
 
       {showInvite && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', zIndex: 30 }}>
-          <div className="card glass" style={{ width: 'min(460px, calc(100vw - 32px))', maxHeight: '80vh', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div className="modal-backdrop">
+          <div className="card glass modal-card" style={{ width: 'min(460px, 100%)' }}>
+            <div className="modal-header" style={{ marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Invite Friends</h3>
               <button className="button button-secondary" onClick={() => setShowInvite(false)} style={{ width: 'auto', padding: '6px 10px' }}>
                 Close
@@ -311,8 +311,8 @@ export default function RoomPage() {
                 {friends.map((friendship) => {
                   const friend = friendship.requesterId === userEmail ? friendship.addressee : friendship.requester;
                   return (
-                    <div key={friendship.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
-                      <div>
+                    <div key={friendship.id} className="list-row">
+                      <div className="list-row-main">
                         <div style={{ fontWeight: 700 }}>{friend?.name || friend?.email}</div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{friend?.email}</div>
                       </div>
@@ -330,9 +330,9 @@ export default function RoomPage() {
       )}
 
       {showSourceModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', zIndex: 30 }}>
-          <div className="card glass" style={{ width: 'min(520px, calc(100vw - 32px))' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div className="modal-backdrop">
+          <div className="card glass modal-card">
+            <div className="modal-header" style={{ marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Change Source</h3>
               <button className="button button-secondary" onClick={() => setShowSourceModal(false)} style={{ width: 'auto', padding: '6px 10px' }}>
                 Close

@@ -153,16 +153,7 @@ const YouTubePlayer = forwardRef<PlayerAdapter, Props>(function YouTubePlayer(
   }, [videoId, isHost]);
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        aspectRatio: '16 / 9',
-        borderRadius: 16,
-        overflow: 'hidden',
-        background: '#000',
-      }}
-    >
+    <div className="player-frame" style={{ position: 'relative' }}>
       <div ref={containerRef} />
     </div>
   );

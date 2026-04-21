@@ -87,15 +87,7 @@ export default function NotificationBell() {
       </button>
       {open && (
         <div
-          className="card glass"
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 'calc(100% + 8px)',
-            width: 320,
-            zIndex: 20,
-            padding: 12,
-          }}
+          className="card glass notification-menu"
         >
           {notices.length === 0 ? (
             <p style={{ margin: 0, color: 'var(--text-secondary)' }}>No new notifications.</p>

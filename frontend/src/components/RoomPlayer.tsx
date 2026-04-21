@@ -245,7 +245,7 @@ export default function RoomPlayer({
 
   if (adapterType === 'file' && !effectiveUrl) {
     return (
-      <div style={{ display: 'grid', gap: 12 }}>
+      <div className="player-stack">
         <h3>Load Local Video</h3>
         <p>
           {isHost
@@ -280,8 +280,8 @@ export default function RoomPlayer({
   }
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+    <div className="player-stack">
+      <div className="player-toolbar">
         <button onClick={syncNow} style={{ padding: '8px 14px' }}>
           Sync Now
         </button>
@@ -294,7 +294,7 @@ export default function RoomPlayer({
         <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>{localFileName}</div>
       )}
 
-      <div data-player-shell>
+      <div className="player-shell" data-player-shell>
         {adapterType === 'youtube' ? (
           <YouTubePlayer
             ref={playerRef}
@@ -425,27 +425,20 @@ function OttControls({
   };
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div className="ott-panel">
       <h3>OTT Sync Mode</h3>
       <p>
         Open Netflix / Prime / Hotstar in another tab. Everyone can use the
         sync controls below.
       </p>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div className="player-toolbar">
         <input
           value={time}
           onChange={(e) => setTime(e.target.value)}
           placeholder="Time (seconds)"
-          style={{
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid var(--border)',
-            background: 'rgba(255,255,255,0.05)',
-            color: 'var(--text-primary)',
-            width: 140,
-            fontSize: '0.9rem',
-          }}
+          className="input"
+          style={{ width: 140 }}
         />
         <button onClick={() => broadcast(true)} style={{ padding: '8px 20px' }}>
           Play All

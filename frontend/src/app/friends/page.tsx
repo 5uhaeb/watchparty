@@ -99,7 +99,7 @@ export default function FriendsPage() {
   const list = data[activeTab];
 
   return (
-    <div style={{ display: 'grid', gap: 24 }}>
+    <div className="friends-stack">
       <header>
         <h1 style={{ marginBottom: 6 }}>Friends</h1>
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Add people, accept requests, and invite friends into rooms.</p>
@@ -116,8 +116,8 @@ export default function FriendsPage() {
         {results.length > 0 && (
           <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
             {results.map((user) => (
-              <div key={user.email} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                <div>
+              <div key={user.email} className="list-row">
+                <div className="list-row-main">
                   <div style={{ fontWeight: 700 }}>{user.name}</div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{user.email}</div>
                 </div>
@@ -132,7 +132,7 @@ export default function FriendsPage() {
       </div>
 
       <div className="card glass">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+        <div className="tabs-row" style={{ marginBottom: 18 }}>
           {(['friends', 'incoming', 'outgoing'] as const).map((tab) => (
             <button
               key={tab}
@@ -152,13 +152,13 @@ export default function FriendsPage() {
             {list.map((friendship) => {
               const user = otherUser(friendship);
               return (
-                <div key={friendship.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: 12, border: '1px solid var(--border)', borderRadius: 10 }}>
-                  <div>
+                <div key={friendship.id} className="list-row">
+                  <div className="list-row-main">
                     <div style={{ fontWeight: 700 }}>{user?.name || 'Unknown user'}</div>
                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{user?.email}</div>
                   </div>
                   {activeTab === 'incoming' && (
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div className="actions-row">
                       <button className="button" onClick={() => respond(friendship.id, 'accept')} style={{ width: 'auto' }}>Accept</button>
                       <button className="button button-secondary" onClick={() => respond(friendship.id, 'decline')} style={{ width: 'auto' }}>Decline</button>
                     </div>

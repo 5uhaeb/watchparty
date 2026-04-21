@@ -2,20 +2,20 @@ import Link from 'next/link';
 
 export default function HomePage() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '80px', padding: '40px 0' }}>
-      <section style={{ textAlign: 'center', maxWidth: '800px', margin: '0 auto' }}>
-        <h1 style={{ fontSize: '4rem', lineHeight: '1.1', marginBottom: '24px' }}>
+    <div className="page-stack">
+      <section className="hero-section">
+        <h1 className="hero-title">
           Watch movies together, anywhere in the world.
         </h1>
-        <p style={{ fontSize: '1.25rem', color: 'var(--text-secondary)', marginBottom: '40px' }}>
+        <p className="hero-copy">
           Experience seamless synchronized playback with friends. YouTube, local files, and more.
           The ultimate watch party platform with low-latency sync and real-time chat.
         </p>
-        <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Link href="/create-room" className="button" style={{ padding: '16px 32px', fontSize: '1.1rem' }}>
+        <div className="cta-row">
+          <Link href="/create-room" className="button">
             Get started
           </Link>
-          <Link href="/dashboard" className="button button-secondary" style={{ padding: '16px 32px', fontSize: '1.1rem' }}>
+          <Link href="/dashboard" className="button button-secondary">
             Join a room
           </Link>
         </div>

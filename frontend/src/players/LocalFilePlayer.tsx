@@ -65,11 +65,7 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
       src={src}
       controls={controls}
       playsInline
-      style={{
-        width: '100%',
-        borderRadius: 16,
-        background: '#000',
-      }}
+      className="local-video-frame"
     />
   );
 });

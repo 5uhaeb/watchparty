@@ -14,7 +14,7 @@ export default function DashboardPage() {
 
   if (status === 'loading') {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+      <div className="center-screen">
         <div className="card glass" style={{ padding: '40px', textAlign: 'center' }}>
           <h2>Loading...</h2>
         </div>
@@ -24,7 +24,7 @@ export default function DashboardPage() {
 
   if (!session?.user) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
+      <div className="center-screen">
         <div className="card glass" style={{ textAlign: 'center', maxWidth: '400px' }}>
           <div className="label-tag" style={{ marginBottom: '12px' }}>Sign in</div>
           <h2>Authentication required</h2>
@@ -69,7 +69,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div className="dashboard-stack">
       <header>
         <h1 style={{ marginBottom: '6px' }}>Dashboard</h1>
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Welcome back, {session.user.name}</p>
@@ -113,7 +113,7 @@ export default function DashboardPage() {
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 16px' }}>
           Got an invite link or room code? Enter it below.
         </p>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <div className="form-row">
           <input
             className="input"
             value={joinCode}
@@ -134,7 +134,7 @@ export default function DashboardPage() {
 
       <div className="card glass">
         <h3 style={{ marginBottom: '16px' }}>How it works</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+        <div className="responsive-grid">
           {steps.map(step => (
             <div key={step.title} className="row-item" style={{ alignItems: 'center' }}>
               <span className="chip chip-yellow">{step.number}</span>

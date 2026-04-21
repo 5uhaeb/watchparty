@@ -59,7 +59,8 @@ export default function UserList({
           return (
             <div
               key={user.userId || idx}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: isMe ? '1px solid rgba(59,130,246,0.3)' : '1px solid transparent' }}
+              className="participant-row"
+              style={{ borderColor: isMe ? 'var(--blue)' : undefined }}
             >
               <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: isThisHost ? 'var(--accent)' : 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0 }}>
                 {user.name.charAt(0).toUpperCase()}

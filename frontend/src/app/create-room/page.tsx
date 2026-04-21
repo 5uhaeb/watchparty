@@ -16,7 +16,7 @@ export default function CreateRoomPage() {
 
   if (!session?.user) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
+      <div className="center-screen">
         <div className="card glass" style={{ textAlign: 'center', maxWidth: '400px' }}>
           <div className="label-tag" style={{ marginBottom: '12px' }}>Sign in</div>
           <h2>Authentication required</h2>
@@ -55,13 +55,13 @@ export default function CreateRoomPage() {
   };
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+    <div className="narrow-page">
       <header style={{ textAlign: 'center', marginBottom: '32px' }}>
         <h1>Create a room</h1>
         <p style={{ color: 'var(--text-secondary)' }}>Host a synchronized viewing experience</p>
       </header>
 
-      <div className="card glass" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="card glass form-stack">
         <div>
           <label className="label-tag" style={{ display: 'block', marginBottom: '8px' }}>
             Room name

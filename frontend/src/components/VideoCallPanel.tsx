@@ -217,6 +217,7 @@ export default function VideoCallPanel({
       </div>
 
       <div
+        className="video-call-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${cols}, 1fr)`,
@@ -243,7 +244,7 @@ export default function VideoCallPanel({
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div className="video-call-actions">
         <button
           className="button button-secondary"
           onClick={toggleMic}

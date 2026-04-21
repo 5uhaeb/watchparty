@@ -177,32 +177,18 @@ export default function ChatBox({
   const isCoolingDown = cooldownMs > 0;
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div className="chat-panel">
       <h3>Live Chat</h3>
 
       <div
+        className="chat-scroll"
         ref={scrollBoxRef}
         onScroll={handleScroll}
-        style={{
-          maxHeight: 320,
-          overflowY: 'auto',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 14,
-          padding: 12,
-          display: 'grid',
-          gap: 10,
-        }}
       >
         {messages.map((message, index) => (
           <div
             key={messageKey(message) || index}
-            style={{
-              padding: '10px 12px',
-              borderRadius: 12,
-              background: message.isSystem
-                ? 'rgba(59,130,246,0.08)'
-                : 'rgba(255,255,255,0.04)',
-            }}
+            className={`chat-message ${message.isSystem ? 'chat-message-system' : ''}`}
           >
             {!message.isSystem && (
               <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
@@ -216,14 +202,14 @@ export default function ChatBox({
         <div ref={chatEndRef} />
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className="chat-form">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
           placeholder={isCoolingDown ? `Slow down ${Math.ceil(cooldownMs / 1000)}s` : 'Type a message...'}
           disabled={isCoolingDown}
-          style={{ margin: 0, flex: 1 }}
+          style={{ margin: 0 }}
         />
         <button onClick={sendMessage} disabled={isCoolingDown}>Send</button>
       </div>
