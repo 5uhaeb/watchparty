@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
-import YouTubePlayer from './YouTubePlayer';
+import LocalFilePlayer from '@/players/LocalFilePlayer';
+import YouTubePlayer from '@/players/YouTubePlayer';
+import type { PlayerAdapter, PlayerState } from '@/players/types';
 
 interface Props {
   roomCode: string;
@@ -12,6 +14,11 @@ interface Props {
   currentUserId?: string;
 }
 
+type TimedPlayback = {
+  positionSec: number;
+  atServerTs?: number;
+};
+
 export default function RoomPlayer({
   roomCode,
   videoUrl,
@@ -19,14 +26,17 @@ export default function RoomPlayer({
   isHost = false,
   currentUserId,
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const isSyncingRef = useRef(false);
+  const playerRef = useRef<PlayerAdapter | null>(null);
+  const isApplyingRemoteRef = useRef(false);
+  const lastStateRef = useRef<PlayerState>('unknown');
+  const lastSeekRef = useRef(0);
+  const lastObservedPositionRef = useRef(0);
 
   const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
   const [localFileName, setLocalFileName] = useState<string | null>(null);
 
-  const effectiveUrl =
-    sourceType === 'local' ? localBlobUrl || videoUrl : videoUrl;
+  const adapterType = sourceType === 'local' || sourceType === 'file' ? 'file' : sourceType;
+  const effectiveUrl = adapterType === 'file' ? localBlobUrl || videoUrl : videoUrl;
 
   useEffect(() => {
     return () => {
@@ -34,114 +44,196 @@ export default function RoomPlayer({
     };
   }, [localBlobUrl]);
 
+  const currentPosition = useCallback(() => {
+    return playerRef.current?.getCurrentTime() || 0;
+  }, []);
+
+  const withRemoteGuard = useCallback((apply: () => void, releaseAfterMs = 700) => {
+    isApplyingRemoteRef.current = true;
+    apply();
+    window.setTimeout(() => {
+      isApplyingRemoteRef.current = false;
+    }, releaseAfterMs);
+  }, []);
+
+  const applyPlay = useCallback(
+    ({ positionSec, atServerTs }: TimedPlayback) => {
+      const latencySec = atServerTs ? Math.max(0, (Date.now() - atServerTs) / 1000) : 0;
+      const compensatedPosition = positionSec + latencySec;
+
+      withRemoteGuard(() => {
+        if (Math.abs(currentPosition() - compensatedPosition) > 0.4) {
+          playerRef.current?.seek(compensatedPosition);
+        }
+        playerRef.current?.play();
+      });
+    },
+    [currentPosition, withRemoteGuard]
+  );
+
+  const applyPause = useCallback(
+    ({ positionSec }: TimedPlayback) => {
+      withRemoteGuard(() => {
+        if (Math.abs(currentPosition() - positionSec) > 0.4) {
+          playerRef.current?.seek(positionSec);
+        }
+        playerRef.current?.pause();
+      });
+    },
+    [currentPosition, withRemoteGuard]
+  );
+
+  const applySeek = useCallback(
+    ({ positionSec }: { positionSec: number }) => {
+      withRemoteGuard(() => {
+        playerRef.current?.seek(positionSec);
+      }, 500);
+    },
+    [withRemoteGuard]
+  );
+
   useEffect(() => {
-    if (sourceType === 'youtube' || sourceType === 'ott-sync') return;
+    const onPlay = (payload: TimedPlayback) => {
+      if (!isHost) applyPlay(payload);
+    };
+    const onPause = (payload: TimedPlayback) => {
+      if (!isHost) applyPause(payload);
+    };
+    const onSeek = (payload: { positionSec: number }) => {
+      if (!isHost) applySeek(payload);
+    };
+    const onHeartbeat = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
+      if (isHost || !playerRef.current) return;
 
-    const video = videoRef.current;
-    if (!video) return;
+      const latencySec =
+        playerRef.current.getState() === 'playing' && atServerTs
+          ? Math.max(0, (Date.now() - atServerTs) / 1000)
+          : 0;
+      const targetPosition = positionSec + latencySec;
+      const delta = targetPosition - playerRef.current.getCurrentTime();
+      if (Math.abs(delta) > 1.5) {
+        withRemoteGuard(() => {
+          playerRef.current?.seek(targetPosition);
+        }, 500);
+      }
+    };
+    const onReconnectSync = (playback: { isPlaying: boolean; currentTime: number; atServerTs?: number }) => {
+      const latencySec =
+        playback.isPlaying && playback.atServerTs
+          ? Math.max(0, (Date.now() - playback.atServerTs) / 1000)
+          : 0;
 
-    const emitPlayback = () => {
-      if (isSyncingRef.current) return;
-
-      socket.emit('playback:update', {
-        roomCode,
-        userId: currentUserId,
-        playback: {
-          isPlaying: !video.paused,
-          currentTime: video.currentTime,
-        },
+      withRemoteGuard(() => {
+        playerRef.current?.seek((playback.currentTime || 0) + latencySec);
+        if (playback.isPlaying) {
+          playerRef.current?.play();
+        } else {
+          playerRef.current?.pause();
+        }
       });
     };
 
-    const onPlay = () => emitPlayback();
-    const onPause = () => emitPlayback();
-    const onSeeked = () => emitPlayback();
-
-    const onRemoteUpdate = (playback: {
-      isPlaying: boolean;
-      currentTime: number;
-    }) => {
-      isSyncingRef.current = true;
-
-      if (Math.abs(video.currentTime - playback.currentTime) > 1.2) {
-        video.currentTime = playback.currentTime;
-      }
-
-      if (playback.isPlaying && video.paused) {
-        video.play().catch(() => {});
-      }
-
-      if (!playback.isPlaying && !video.paused) {
-        video.pause();
-      }
-
-      window.setTimeout(() => {
-        isSyncingRef.current = false;
-      }, 300);
-    };
-
-    const onReconnectSync = (playback: {
-      isPlaying: boolean;
-      currentTime: number;
-    }) => {
-      video.currentTime = playback.currentTime;
-      if (playback.isPlaying) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
-      }
-    };
-
-    video.addEventListener('play', onPlay);
-    video.addEventListener('pause', onPause);
-    video.addEventListener('seeked', onSeeked);
-
-    socket.on('playback:update', onRemoteUpdate);
+    socket.on('player:play', onPlay);
+    socket.on('player:pause', onPause);
+    socket.on('player:seek', onSeek);
+    socket.on('player:heartbeat', onHeartbeat);
     socket.on('reconnect:sync', onReconnectSync);
 
     return () => {
-      video.removeEventListener('play', onPlay);
-      video.removeEventListener('pause', onPause);
-      video.removeEventListener('seeked', onSeeked);
-      socket.off('playback:update', onRemoteUpdate);
+      socket.off('player:play', onPlay);
+      socket.off('player:pause', onPause);
+      socket.off('player:seek', onSeek);
+      socket.off('player:heartbeat', onHeartbeat);
       socket.off('reconnect:sync', onReconnectSync);
     };
-  }, [roomCode, sourceType, currentUserId, effectiveUrl]);
+  }, [applyPause, applyPlay, applySeek, isHost, withRemoteGuard]);
+
+  useEffect(() => {
+    if (!isHost) return;
+
+    const intervalId = window.setInterval(() => {
+      socket.emit('player:heartbeat', {
+        roomCode,
+        positionSec: currentPosition(),
+      });
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentPosition, isHost, roomCode]);
+
+  useEffect(() => {
+    if (!isHost) return;
+
+    const intervalId = window.setInterval(() => {
+      if (!playerRef.current || isApplyingRemoteRef.current) return;
+
+      const state = playerRef.current.getState();
+      const positionSec = playerRef.current.getCurrentTime();
+      const previousPosition = lastObservedPositionRef.current;
+      lastObservedPositionRef.current = positionSec;
+
+      const expectedDelta = state === 'playing' ? 0.5 : 0;
+      const actualDelta = Math.abs(positionSec - previousPosition);
+      const now = Date.now();
+
+      if (actualDelta > expectedDelta + 1.5 && now - lastSeekRef.current > 800) {
+        lastSeekRef.current = now;
+        socket.emit('player:seek', { roomCode, userId: currentUserId, positionSec });
+      }
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentUserId, isHost, roomCode]);
+
+  const handleStateChange = (state: PlayerState) => {
+    const previousState = lastStateRef.current;
+    lastStateRef.current = state;
+
+    if (!isHost || isApplyingRemoteRef.current) return;
+
+    const positionSec = currentPosition();
+    if (state === 'playing' && previousState !== 'playing') {
+      socket.emit('player:play', { roomCode, userId: currentUserId, positionSec });
+    }
+
+    if (state === 'paused' && previousState === 'playing') {
+      socket.emit('player:pause', { roomCode, userId: currentUserId, positionSec });
+    }
+
+    lastObservedPositionRef.current = positionSec;
+  };
 
   const syncNow = () => {
-    const video = videoRef.current;
-    if (!video) return;
+    const state = playerRef.current?.getState();
+    const positionSec = currentPosition();
 
-    socket.emit('playback:update', {
-      roomCode,
-      userId: currentUserId,
-      playback: {
-        isPlaying: !video.paused,
-        currentTime: video.currentTime,
-      },
-    });
+    if (state === 'playing') {
+      socket.emit('player:play', { roomCode, userId: currentUserId, positionSec });
+      return;
+    }
+
+    socket.emit('player:pause', { roomCode, userId: currentUserId, positionSec });
   };
 
   const enterFullscreen = async () => {
-    const video = videoRef.current;
-    if (!video) return;
+    const element = document.querySelector('[data-player-shell]');
+    if (!(element instanceof HTMLElement)) return;
 
     try {
-      if (video.requestFullscreen) {
-        await video.requestFullscreen();
-      }
+      await element.requestFullscreen?.();
     } catch (err) {
       console.error('Fullscreen failed', err);
     }
   };
 
-  if (sourceType === 'local' && isHost && !localBlobUrl && !videoUrl) {
+  if (adapterType === 'file' && !effectiveUrl) {
     return (
-      <div>
+      <div style={{ display: 'grid', gap: 12 }}>
         <h3>Load Local Video</h3>
         <p>
-          As host, pick a local file. Playback changes will sync to everyone
-          else.
+          {isHost
+            ? 'Pick a local file. Playback changes will sync to everyone else.'
+            : 'Load the same local file as the host and it will sync.'}
         </p>
         <input
           type="file"
@@ -157,63 +249,22 @@ export default function RoomPlayer({
     );
   }
 
-  if (sourceType === 'local' && !isHost && !videoUrl && !localBlobUrl) {
-    return (
-      <div>
-        <h3>Load Local Video</h3>
-        <p>
-          The host is watching a local file. Load the same file here and it will
-          sync.
-        </p>
-        <input
-          type="file"
-          accept="video/*"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setLocalBlobUrl(URL.createObjectURL(file));
-            setLocalFileName(file.name);
-          }}
-        />
-      </div>
-    );
-  }
-
-  if (!effectiveUrl && sourceType !== 'ott-sync') {
+  if (!effectiveUrl && adapterType !== 'ott-sync') {
     return (
       <div>
         <h3>No Media Source</h3>
-        <p>Waiting for a video link…</p>
+        <p>Waiting for a video link...</p>
       </div>
     );
   }
 
-  if (sourceType === 'ott-sync') {
-    return (
-      <OttControls roomCode={roomCode} currentUserId={currentUserId} />
-    );
-  }
-
-  if (sourceType === 'youtube') {
-    return (
-      <YouTubePlayer
-        roomCode={roomCode}
-        videoUrl={videoUrl || ''}
-        isHost={isHost}
-        currentUserId={currentUserId}
-      />
-    );
+  if (adapterType === 'ott-sync') {
+    return <OttControls roomCode={roomCode} currentUserId={currentUserId} />;
   }
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div
-        style={{
-          display: 'flex',
-          gap: 10,
-          flexWrap: 'wrap',
-        }}
-      >
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button onClick={syncNow} style={{ padding: '8px 14px' }}>
           Sync Now
         </button>
@@ -226,17 +277,25 @@ export default function RoomPlayer({
         <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>{localFileName}</div>
       )}
 
-      <video
-        ref={videoRef}
-        src={effectiveUrl}
-        controls
-        playsInline
-        style={{
-          width: '100%',
-          borderRadius: 16,
-          background: '#000',
-        }}
-      />
+      <div data-player-shell>
+        {adapterType === 'youtube' ? (
+          <YouTubePlayer
+            ref={playerRef}
+            videoUrl={effectiveUrl || ''}
+            isHost={isHost}
+            onStateChange={handleStateChange}
+            onError={(error) => console.error('YouTube player error', error)}
+          />
+        ) : (
+          <LocalFilePlayer
+            ref={playerRef}
+            src={effectiveUrl || ''}
+            controls={isHost}
+            onStateChange={handleStateChange}
+            onError={(error) => console.error('Local player error', error)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -251,13 +310,11 @@ function OttControls({
   const [time, setTime] = useState('0');
 
   const broadcast = (isPlaying: boolean) => {
-    socket.emit('playback:update', {
+    const positionSec = parseFloat(time) || 0;
+    socket.emit(isPlaying ? 'player:play' : 'player:pause', {
       roomCode,
       userId: currentUserId,
-      playback: {
-        isPlaying,
-        currentTime: parseFloat(time) || 0,
-      },
+      positionSec,
     });
   };
 
@@ -285,13 +342,13 @@ function OttControls({
           }}
         />
         <button onClick={() => broadcast(true)} style={{ padding: '8px 20px' }}>
-          ▶ Play All
+          Play All
         </button>
         <button
           onClick={() => broadcast(false)}
           style={{ padding: '8px 20px' }}
         >
-          ⏸ Pause All
+          Pause All
         </button>
       </div>
     </div>

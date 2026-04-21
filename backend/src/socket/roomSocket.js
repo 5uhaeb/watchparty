@@ -15,6 +15,24 @@ function serializeMessage(message) {
   };
 }
 
+function getRoomCode(socket, roomCode) {
+  return roomCode || socket.roomCode;
+}
+
+function getUserId(socket, userId) {
+  return userId || socket.userData?.id || socket.userData?.name;
+}
+
+function canControlRoom(room, userId) {
+  if (!room || !userId) return false;
+
+  const participant = room.participants?.some(
+    (p) => p.userId === userId || p.name === userId
+  );
+
+  return participant || room.hostUserId === userId;
+}
+
 function registerRoomSocket(io, socket) {
   socket.on('room:join', async ({ roomCode, user }) => {
     socket.join(roomCode);
@@ -64,6 +82,7 @@ function registerRoomSocket(io, socket) {
     socket.emit('reconnect:sync', {
       isPlaying: !!pb.isPlaying,
       currentTime,
+      atServerTs: Date.now(),
     });
   });
 
@@ -95,6 +114,112 @@ function registerRoomSocket(io, socket) {
     });
   });
 
+  socket.on('player:play', async ({ roomCode, userId, positionSec }) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket, userId);
+    const room = await Room.findOne({ code: targetRoomCode });
+    if (!canControlRoom(room, actorUserId)) return;
+
+    const atServerTs = Date.now();
+    const payload = {
+      positionSec: Number(positionSec || 0),
+      atServerTs,
+    };
+
+    await Room.findOneAndUpdate(
+      { code: targetRoomCode },
+      {
+        playback: {
+          isPlaying: true,
+          currentTime: payload.positionSec,
+          updatedAt: new Date(atServerTs),
+          updatedBy: actorUserId || 'unknown',
+        },
+      }
+    );
+
+    socket.to(targetRoomCode).emit('player:play', payload);
+  });
+
+  socket.on('player:pause', async ({ roomCode, userId, positionSec }) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket, userId);
+    const room = await Room.findOne({ code: targetRoomCode });
+    if (!canControlRoom(room, actorUserId)) return;
+
+    const atServerTs = Date.now();
+    const payload = {
+      positionSec: Number(positionSec || 0),
+      atServerTs,
+    };
+
+    await Room.findOneAndUpdate(
+      { code: targetRoomCode },
+      {
+        playback: {
+          isPlaying: false,
+          currentTime: payload.positionSec,
+          updatedAt: new Date(atServerTs),
+          updatedBy: actorUserId || 'unknown',
+        },
+      }
+    );
+
+    socket.to(targetRoomCode).emit('player:pause', payload);
+  });
+
+  socket.on('player:seek', async ({ roomCode, userId, positionSec }) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket, userId);
+    const room = await Room.findOne({ code: targetRoomCode });
+    if (!canControlRoom(room, actorUserId)) return;
+
+    const atServerTs = Date.now();
+    const nextPosition = Number(positionSec || 0);
+
+    await Room.findOneAndUpdate(
+      { code: targetRoomCode },
+      {
+        $set: {
+          'playback.currentTime': nextPosition,
+          'playback.updatedAt': new Date(atServerTs),
+          'playback.updatedBy': actorUserId || 'unknown',
+        },
+      }
+    );
+
+    socket.to(targetRoomCode).emit('player:seek', {
+      positionSec: nextPosition,
+      atServerTs,
+    });
+  });
+
+  socket.on('player:heartbeat', async ({ roomCode, positionSec }) => {
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    const actorUserId = getUserId(socket);
+    const room = await Room.findOne({ code: targetRoomCode });
+    if (!room || room.hostUserId !== actorUserId) return;
+
+    const atServerTs = Date.now();
+    const nextPosition = Number(positionSec || 0);
+
+    await Room.findOneAndUpdate(
+      { code: targetRoomCode },
+      {
+        $set: {
+          'playback.currentTime': nextPosition,
+          'playback.updatedAt': new Date(atServerTs),
+          'playback.updatedBy': actorUserId || 'unknown',
+        },
+      }
+    );
+
+    socket.to(targetRoomCode).emit('player:heartbeat', {
+      positionSec: nextPosition,
+      atServerTs,
+    });
+  });
+
   // anyone in the room can drive sync now
   socket.on('playback:update', async ({ roomCode, playback, userId }) => {
     const room = await Room.findOne({ code: roomCode });
@@ -120,7 +245,10 @@ function registerRoomSocket(io, socket) {
       { playback: nextPlayback }
     );
 
-    socket.to(roomCode).emit('playback:update', nextPlayback);
+    socket.to(roomCode).emit('playback:update', {
+      ...nextPlayback,
+      atServerTs: Date.now(),
+    });
   });
 
   socket.on('room:kick', async ({ roomCode, targetName, hostUserId }) => {

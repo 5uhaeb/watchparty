@@ -24,6 +24,8 @@ export default function RoomPage() {
   const userEmail = session?.user?.email ?? '';
   const userName = session?.user?.name ?? 'Guest';
   const isHost = !!room && room.hostUserId === userEmail;
+  const roomSourceType = room?.source?.type || room?.sourceType;
+  const roomSourceUrl = room?.source?.url || room?.sourceData?.url;
 
   useEffect(() => {
     if (!code) return;
@@ -106,7 +108,7 @@ export default function RoomPage() {
             📹 {showCall ? 'Hide Call' : 'Video Call'}
           </button>
           <div className="button button-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem', pointerEvents: 'none' }}>
-            {room.sourceType.toUpperCase()}
+            {roomSourceType.toUpperCase()}
           </div>
         </div>
       </div>
@@ -117,22 +119,22 @@ export default function RoomPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <RoomPlayer
             roomCode={code}
-            videoUrl={room.sourceData?.url}
-            sourceType={room.sourceType}
+            videoUrl={roomSourceUrl}
+            sourceType={roomSourceType}
             isHost={isHost}
             currentUserId={userEmail}
           />
 
           {/* OTT note / room details */}
-          {room.sourceType !== 'ott-sync' && (
+          {roomSourceType !== 'ott-sync' && (
             <div className="card glass">
               <h3 style={{ margin: '0 0 8px' }}>Now Watching</h3>
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
-                {room.sourceData?.url || room.sourceData?.fileName || 'Local / OTT Sync'}
+                {roomSourceUrl || room.sourceData?.fileName || 'Local / OTT Sync'}
               </p>
               {!isHost && (
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Anyone in the room can control playback. The latest action syncs for everyone.
+                  The host controls playback. Heartbeats keep this player in sync.
                 </p>
               )}
             </div>
