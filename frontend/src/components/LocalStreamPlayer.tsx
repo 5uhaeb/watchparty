@@ -36,6 +36,7 @@ export default function LocalStreamPlayer({
 }: Props) {
   const hostVideoRef = useRef<CapturableVideo | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const viewerAudioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
@@ -147,14 +148,24 @@ export default function LocalStreamPlayer({
       });
       setStatus('Streaming to viewers. Press play if the video is paused.');
     };
+    const handlePlaybackReady = () => {
+      captureHostStream();
+      for (const viewerSocketId of peersRef.current.keys()) {
+        createOfferForViewer(viewerSocketId).catch(() => null);
+      }
+    };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('play', handlePlaybackReady);
+    video.addEventListener('canplay', handlePlaybackReady);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('play', handlePlaybackReady);
+      video.removeEventListener('canplay', handlePlaybackReady);
       cleanupHostStream(true);
     };
-  }, [captureHostStream, cleanupHostStream, file, isHost]);
+  }, [captureHostStream, cleanupHostStream, createOfferForViewer, file, isHost]);
 
   useEffect(() => {
     if (!isHost) return;
@@ -208,12 +219,20 @@ export default function LocalStreamPlayer({
       setRemoteTrackSummary(`${videoTracks} video / ${audioTracks} audio track${videoTracks + audioTracks === 1 ? '' : 's'}`);
 
       video.srcObject = remoteStream;
-      video.muted = false;
+      video.muted = true;
       video.volume = 1;
       video.load();
+      if (viewerAudioRef.current) {
+        viewerAudioRef.current.srcObject = remoteStream;
+        viewerAudioRef.current.volume = 1;
+      }
       video.play().then(
         () => {
           setNeedsPlayClick(false);
+          viewerAudioRef.current?.play().catch(() => {
+            setNeedsPlayClick(true);
+            setStatus('Video connected. Tap Start audio/video to hear audio.');
+          });
           setStatus('Watching host stream.');
         },
         () => {
@@ -293,14 +312,15 @@ export default function LocalStreamPlayer({
     const video = viewerVideoRef.current;
     if (!video) return;
 
-    video.muted = false;
+    video.muted = true;
     video.volume = 1;
-    video.play().then(() => {
+    Promise.allSettled([
+      video.play(),
+      viewerAudioRef.current?.play() || Promise.resolve(),
+    ]).then((results) => {
+      const blocked = results.some((result) => result.status === 'rejected');
       setNeedsPlayClick(false);
-      setStatus('Watching host stream.');
-    }).catch(() => {
-      setNeedsPlayClick(true);
-      setStatus('Browser blocked playback. Tap the video controls to start.');
+      setStatus(blocked ? 'Video playing. Tap again or use browser controls for audio.' : 'Watching host stream.');
     });
   };
 
@@ -344,6 +364,7 @@ export default function LocalStreamPlayer({
         className="local-video-frame"
         autoPlay
         controls
+        muted
         playsInline
         preload="auto"
         title="Host stream"
@@ -353,6 +374,7 @@ export default function LocalStreamPlayer({
         onWaiting={() => setStatus('Buffering host stream...')}
         onClick={playViewerVideo}
       />
+      <audio ref={viewerAudioRef} autoPlay />
       <div className="player-toolbar">
         <button className="button button-secondary" onClick={playViewerVideo}>
           {needsPlayClick ? 'Play stream' : 'Start audio/video'}

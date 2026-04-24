@@ -129,10 +129,6 @@ export default function VideoCallPanel({
       setCallError('');
       const stream = await navigator.mediaDevices.getUserMedia(CALL_MEDIA_CONSTRAINTS);
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        await localVideoRef.current.play().catch(() => null);
-      }
       setIsInCall(true);
       setAudioUnlocked(true);
       socket.emit('call:join', {
@@ -144,6 +140,12 @@ export default function VideoCallPanel({
       setCallError('Could not access camera/microphone. Check browser permissions.');
     }
   };
+
+  useEffect(() => {
+    if (!isInCall || !localVideoRef.current || !localStreamRef.current) return;
+    localVideoRef.current.srcObject = localStreamRef.current;
+    localVideoRef.current.play().catch(() => null);
+  }, [isInCall]);
 
   const leaveCall = () => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
