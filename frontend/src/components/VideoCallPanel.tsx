@@ -45,6 +45,7 @@ export default function VideoCallPanel({
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
 
   useEffect(() => {
@@ -124,6 +125,14 @@ export default function VideoCallPanel({
     return pc;
   };
 
+  const flushPendingIce = async (socketId: string, pc: RTCPeerConnection) => {
+    const pending = pendingIceRef.current.get(socketId) || [];
+    pendingIceRef.current.delete(socketId);
+    for (const candidate of pending) {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => null);
+    }
+  };
+
   const unlockAudio = async () => {
     setAudioUnlocked(true);
     const mediaElements = Array.from(document.querySelectorAll<HTMLMediaElement>('[data-call-media]'));
@@ -185,7 +194,7 @@ export default function VideoCallPanel({
 
     const handleMembers = ({ members }: { members?: Array<{ socketId: string; userId: string; name: string }> }) => {
       for (const member of members || []) {
-        if (member.userId !== currentUser.id) createPC(member.socketId, member.userId, member.name, true);
+        if (member.userId !== currentUser.id) ensurePeer(member.socketId, member.userId, member.name);
       }
     };
 
@@ -221,6 +230,7 @@ export default function VideoCallPanel({
         if (signal.type === 'offer') {
           if (!pc) pc = createPC(fromSocketId, fromUserId || fromSocketId, fromName || fromUserId || fromSocketId, false);
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
+          await flushPendingIce(fromSocketId, pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit('call:signal', {
@@ -230,8 +240,19 @@ export default function VideoCallPanel({
           });
         } else if (signal.type === 'answer' && pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
+          await flushPendingIce(fromSocketId, pc);
         } else if (signal.type === 'ice-candidate' && pc) {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate!));
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate!));
+          } else {
+            const pending = pendingIceRef.current.get(fromSocketId) || [];
+            pending.push(signal.candidate!);
+            pendingIceRef.current.set(fromSocketId, pending);
+          }
+        } else if (signal.type === 'ice-candidate') {
+          const pending = pendingIceRef.current.get(fromSocketId) || [];
+          pending.push(signal.candidate!);
+          pendingIceRef.current.set(fromSocketId, pending);
         }
       } catch {
         updatePeer(fromSocketId, { status: 'Signal failed' });
@@ -337,6 +358,7 @@ export default function VideoCallPanel({
           onClick={toggleMic}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem', background: isMicOn ? undefined : 'rgba(239,68,68,0.1)' }}
         >
+          <MicIcon muted={!isMicOn} />
           {isMicOn ? 'Mute' : 'Unmute'}
         </button>
         <button
@@ -344,6 +366,7 @@ export default function VideoCallPanel({
           onClick={toggleCam}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem', background: isCamOn ? undefined : 'rgba(239,68,68,0.1)' }}
         >
+          <CameraIcon off={!isCamOn} />
           {isCamOn ? 'Hide camera' : 'Show camera'}
         </button>
         <button
@@ -351,10 +374,43 @@ export default function VideoCallPanel({
           onClick={unlockAudio}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem' }}
         >
+          <SpeakerIcon />
           Enable audio
         </button>
       </div>
     </div>
+  );
+}
+
+function MicIcon({ muted = false }: { muted?: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v3" />
+      <path d="M8 22h8" />
+      {muted && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
+
+function CameraIcon({ off = false }: { off?: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 10l4.5-2.5A1 1 0 0 1 21 8.4v7.2a1 1 0 0 1-1.5.9L15 14" />
+      <rect x="3" y="6" width="12" height="12" rx="2" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5L6 9H3v6h3l5 4V5Z" />
+      <path d="M16 9a5 5 0 0 1 0 6" />
+      <path d="M19 6a9 9 0 0 1 0 12" />
+    </svg>
   );
 }
 
