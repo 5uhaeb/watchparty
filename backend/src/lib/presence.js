@@ -3,6 +3,7 @@ const { redis } = require('./redis');
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6;
 const RECONNECT_GRACE_SECONDS = 60;
+const PRESENCE_TIMEOUT_MS = 1500;
 
 function presenceKey(roomCode) {
   return `room:${roomCode}:presence`;
@@ -30,7 +31,12 @@ function parsePresence(value) {
 
 async function toleratePresenceFailure(action, fallback, fn) {
   try {
-    return await fn();
+    return await Promise.race([
+      fn(),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(`timed out after ${PRESENCE_TIMEOUT_MS}ms`)), PRESENCE_TIMEOUT_MS);
+      }),
+    ]);
   } catch (error) {
     console.warn(`presence ${action} failed:`, error.message);
     return fallback;
