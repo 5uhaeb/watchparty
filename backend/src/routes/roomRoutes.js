@@ -2,7 +2,6 @@ const express = require('express');
 const Room = require('../models/Room');
 const Message = require('../models/Message');
 const { requireGuest } = require('../lib/guestAuth');
-const { getPresenceList } = require('../lib/presence');
 
 const router = express.Router();
 
@@ -62,8 +61,7 @@ function isOwnerOrAdmin(room, guestId) {
   );
 }
 
-async function serializePublicRoom(room) {
-  const presence = await getPresenceList(room.code);
+function serializePublicRoom(room) {
   return {
     id: room._id,
     _id: room._id,
@@ -75,7 +73,7 @@ async function serializePublicRoom(room) {
     permissions: room.permissions,
     source: room.source || null,
     playback: room.playback,
-    presence: { count: presence.length },
+    presence: { count: 0 },
     isActive: room.isActive,
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
@@ -148,7 +146,7 @@ router.get('/:code', async (req, res) => {
     const code = req.params.code.toUpperCase();
     const room = await Room.findOne({ code, isActive: true });
     if (!room) return res.status(404).json({ message: 'Room not found' });
-    res.json(await serializePublicRoom(room));
+    res.json(serializePublicRoom(room));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
