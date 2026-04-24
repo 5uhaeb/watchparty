@@ -8,8 +8,9 @@ const roomSchema = new mongoose.Schema(
     ownerGuestId: { type: String, required: true },
     adminGuestIds: [{ type: String }],
     permissions: {
-      changeSource: { type: String, enum: ['ownerAdmin'], default: 'ownerAdmin' },
-      editTitle: { type: String, enum: ['ownerAdmin'], default: 'ownerAdmin' }
+      changeSource: { type: String, enum: ['ownerAdmin', 'all'], default: 'ownerAdmin' },
+      controlPlayback: { type: String, enum: ['ownerAdmin', 'all'], default: 'ownerAdmin' },
+      editTitle: { type: String, enum: ['ownerAdmin', 'all'], default: 'ownerAdmin' }
     },
     source: { type: mongoose.Schema.Types.Mixed, default: null },
     playback: {

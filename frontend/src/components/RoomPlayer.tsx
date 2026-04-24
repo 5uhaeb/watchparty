@@ -317,9 +317,11 @@ export default function RoomPlayer({
   return (
     <div className="player-stack">
       <div className="player-toolbar">
-        <button onClick={syncNow} style={{ padding: '8px 14px' }}>
-          Sync Now
-        </button>
+        {isHost && (
+          <button onClick={syncNow} style={{ padding: '8px 14px' }}>
+            Sync Now
+          </button>
+        )}
         <button onClick={enterFullscreen} style={{ padding: '8px 14px' }}>
           Full Screen
         </button>

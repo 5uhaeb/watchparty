@@ -46,8 +46,13 @@ export default function RoomPage() {
   const source = room?.source || null;
   const isHost = !!room && room.ownerGuestId === guestId;
   const isAdmin = !!room && room.adminGuestIds?.includes(guestId);
-  const canChangeSource = isHost || isAdmin;
+  const isOwnerOrAdmin = isHost || isAdmin;
+  const canChangeSource = isOwnerOrAdmin || room?.permissions?.changeSource === 'all';
+  const canControlPlayback = isOwnerOrAdmin || room?.permissions?.controlPlayback === 'all';
+  const canEditTitle = isOwnerOrAdmin || room?.permissions?.editTitle === 'all';
   const activeSourceType = localStreamFile ? 'localStream' : source?.type;
+  const isLocalStreamer = !!localStreamFile || source?.hostGuestId === guestId;
+  const playerCanControl = activeSourceType === 'localStream' ? isLocalStreamer : canControlPlayback;
   const activeSourceData = localStreamFile
     ? { fileName: localStreamFile.name, sizeBytes: localStreamFile.size }
     : source;
@@ -174,7 +179,7 @@ export default function RoomPage() {
   };
 
   const saveTitle = async () => {
-    if (!canChangeSource || !room) return;
+    if (!canEditTitle || !room) return;
     const nextTitle = titleDraft.trim();
     if (!nextTitle || nextTitle === room.title) {
       setEditingTitle(false);
@@ -233,6 +238,34 @@ export default function RoomPage() {
     setLocalStreamFile(null);
     socket.emit('room:setSource', { type: 'clear' });
     setShowSourceModal(false);
+  };
+
+  const updatePermissions = async (nextPermissions: any) => {
+    if (!isOwnerOrAdmin || !room) return;
+
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
+      method: 'PATCH',
+      headers: guestAuthHeaders({ 'Content-Type': 'application/json' }),
+      credentials: 'include',
+      body: JSON.stringify({ permissions: nextPermissions }),
+    });
+
+    if (res.ok) {
+      setRoom(await res.json());
+      return;
+    }
+
+    alert((await res.json()).message || 'Could not update permissions.');
+  };
+
+  const toggleGuestPermission = (name: 'changeSource' | 'controlPlayback' | 'editTitle') => {
+    const current = room?.permissions || {};
+    updatePermissions({
+      changeSource: current.changeSource || 'ownerAdmin',
+      controlPlayback: current.controlPlayback || 'ownerAdmin',
+      editTitle: current.editTitle || 'ownerAdmin',
+      [name]: current[name] === 'all' ? 'ownerAdmin' : 'all',
+    });
   };
 
   const openSourcePicker = (tab: SourceTab) => {
@@ -410,9 +443,9 @@ export default function RoomPage() {
             />
           ) : (
             <h1
-              onClick={() => canChangeSource && setEditingTitle(true)}
-              title={canChangeSource ? 'Edit room title' : undefined}
-              style={{ margin: '0 0 4px', fontSize: '1.4rem', cursor: canChangeSource ? 'text' : 'default' }}
+              onClick={() => canEditTitle && setEditingTitle(true)}
+              title={canEditTitle ? 'Edit room title' : undefined}
+              style={{ margin: '0 0 4px', fontSize: '1.4rem', cursor: canEditTitle ? 'text' : 'default' }}
             >
               {room.title || 'Untitled room'}
             </h1>
@@ -458,6 +491,37 @@ export default function RoomPage() {
         </div>
       </div>
 
+      {isOwnerOrAdmin && (
+        <div className="card glass" style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: '0 0 4px' }}>Guest permissions</h3>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+              Let guests help run the room without making them admins.
+            </p>
+          </div>
+          <div className="player-toolbar">
+            <button
+              className={`button ${room.permissions?.changeSource === 'all' ? '' : 'button-secondary'}`}
+              onClick={() => toggleGuestPermission('changeSource')}
+            >
+              Change source: {room.permissions?.changeSource === 'all' ? 'Guests' : 'Admins'}
+            </button>
+            <button
+              className={`button ${room.permissions?.controlPlayback === 'all' ? '' : 'button-secondary'}`}
+              onClick={() => toggleGuestPermission('controlPlayback')}
+            >
+              Playback: {room.permissions?.controlPlayback === 'all' ? 'Guests' : 'Admins'}
+            </button>
+            <button
+              className={`button ${room.permissions?.editTitle === 'all' ? '' : 'button-secondary'}`}
+              onClick={() => toggleGuestPermission('editTitle')}
+            >
+              Title: {room.permissions?.editTitle === 'all' ? 'Guests' : 'Admins'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="row">
         <div
           className="content-column"
@@ -479,7 +543,7 @@ export default function RoomPage() {
               sourceType={activeSourceType}
               sourceData={activeSourceData}
               localStreamFile={localStreamFile}
-              isHost={canChangeSource}
+              isHost={playerCanControl}
               currentUserId={guestId}
               onLocalStreamStopped={() => {
                 setLocalStreamFile(null);

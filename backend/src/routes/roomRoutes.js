@@ -61,6 +61,15 @@ function isOwnerOrAdmin(room, guestId) {
   );
 }
 
+function can(room, guestId, permission) {
+  if (isOwnerOrAdmin(room, guestId)) return true;
+  return room.permissions?.[permission] === 'all';
+}
+
+function normalizePermissionMode(value) {
+  return value === 'all' ? 'all' : 'ownerAdmin';
+}
+
 function serializePublicRoom(room) {
   return {
     id: room._id,
@@ -156,12 +165,25 @@ router.patch('/:code', requireGuest, async (req, res) => {
   try {
     const room = await Room.findOne({ code: req.params.code.toUpperCase(), isActive: true });
     if (!room) return res.status(404).json({ message: 'Room not found' });
-    if (!isOwnerOrAdmin(room, getUserId(req))) return res.status(403).json({ message: 'Forbidden' });
+    const guestId = getUserId(req);
 
     if (req.body?.title !== undefined) {
+      if (!can(room, guestId, 'editTitle')) return res.status(403).json({ message: 'Forbidden' });
       const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
       if (!title || title.length > 60) return res.status(400).json({ message: 'title must be 1-60 characters' });
       room.title = title;
+      room.lastActivityAt = new Date();
+    }
+
+    if (req.body?.permissions !== undefined) {
+      if (!isOwnerOrAdmin(room, guestId)) return res.status(403).json({ message: 'Forbidden' });
+      const currentPermissions = room.permissions || {};
+      room.permissions = {
+        ...currentPermissions,
+        changeSource: normalizePermissionMode(req.body.permissions.changeSource ?? currentPermissions.changeSource),
+        controlPlayback: normalizePermissionMode(req.body.permissions.controlPlayback ?? currentPermissions.controlPlayback),
+        editTitle: normalizePermissionMode(req.body.permissions.editTitle ?? currentPermissions.editTitle),
+      };
       room.lastActivityAt = new Date();
     }
 

@@ -30,30 +30,24 @@ function getUserId(socket, userId) {
   return socket.data?.guestId || userId || socket.userData?.id || socket.userData?.name;
 }
 
-async function canControlRoom(room, userId) {
-  if (!room || !userId) return false;
-
-  return (
+function isOwnerOrAdmin(room, userId) {
+  return !!userId && (
     room.ownerGuestId === userId ||
-    room.adminGuestIds?.includes(userId) ||
-    (await isMember(room.code, userId))
+    room.adminGuestIds?.includes(userId)
   );
+}
+
+function can(room, userId, permission) {
+  if (!room || !userId) return false;
+  if (isOwnerOrAdmin(room, userId)) return true;
+  return room.permissions?.[permission] === 'all';
 }
 
 async function isRoomMember(room, userId) {
   if (!room || !userId) return false;
   return (
-    room.ownerGuestId === userId ||
-    room.adminGuestIds?.includes(userId) ||
+    isOwnerOrAdmin(room, userId) ||
     (await isMember(room.code, userId))
-  );
-}
-
-function can(room, userId, permission) {
-  if (permission !== 'changeSource') return false;
-  return !!userId && (
-    room.ownerGuestId === userId ||
-    room.adminGuestIds?.includes(userId)
   );
 }
 
@@ -75,7 +69,7 @@ function extractYouTubeVideoId(rawUrl) {
   return null;
 }
 
-function normalizeSource(payload, socketId) {
+function normalizeSource(payload, socket) {
   if (!payload || payload.type === 'clear') return null;
 
   if (payload.type === 'youtube') {
@@ -94,7 +88,8 @@ function normalizeSource(payload, socketId) {
       fileName: payload.fileName.trim(),
       sizeBytes: Number(payload.sizeBytes) || 0,
       durationSec: Number(payload.durationSec) || 0,
-      hostSocketId: socketId,
+      hostSocketId: socket.id,
+      hostGuestId: socket.data?.guestId,
     };
   }
 
@@ -289,7 +284,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!(await canControlRoom(room, actorUserId))) return;
+    if (!can(room, actorUserId, 'controlPlayback')) return;
 
     const atServerTs = Date.now();
     const payload = {
@@ -317,7 +312,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!(await canControlRoom(room, actorUserId))) return;
+    if (!can(room, actorUserId, 'controlPlayback')) return;
 
     const atServerTs = Date.now();
     const payload = {
@@ -345,7 +340,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!(await canControlRoom(room, actorUserId))) return;
+    if (!can(room, actorUserId, 'controlPlayback')) return;
 
     const atServerTs = Date.now();
     const nextPosition = Number(positionSec || 0);
@@ -372,7 +367,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket);
     const room = await Room.findOne({ code: targetRoomCode });
-    if (!room || room.ownerGuestId !== actorUserId) return;
+    if (!can(room, actorUserId, 'controlPlayback')) return;
 
     const atServerTs = Date.now();
     const nextPosition = Number(positionSec || 0);
@@ -419,11 +414,14 @@ function registerRoomSocket(io, socket) {
     if (!room) return;
 
     const actorUserId = getUserId(socket);
-    if (!can(room, actorUserId, 'changeSource')) return;
+    if (!can(room, actorUserId, 'changeSource')) {
+      socket.emit('error:validation', { message: 'You do not have permission to change the source.' });
+      return;
+    }
 
     let source;
     try {
-      source = normalizeSource(payload, socket.id);
+      source = normalizeSource(payload, socket);
     } catch (error) {
       socket.emit('error:validation', { message: error.message });
       return;
@@ -506,10 +504,8 @@ function registerRoomSocket(io, socket) {
     const room = await Room.findOne({ code: roomCode });
     if (!room) return;
 
-    const isHost = room.ownerGuestId === userId || room.adminGuestIds?.includes(userId);
-    const participant = await isMember(roomCode, userId);
-
-    if (!participant && !isHost) return;
+    const isHost = isOwnerOrAdmin(room, userId);
+    if (!isHost && room.permissions?.controlPlayback !== 'all') return;
 
     const nextPlayback = {
       isPlaying: !!playback?.isPlaying,
@@ -532,7 +528,7 @@ function registerRoomSocket(io, socket) {
   socket.on('room:kick', async ({ roomCode, targetName }) => {
     const hostUserId = getUserId(socket);
     const room = await Room.findOne({ code: roomCode });
-    if (!room || !can(room, hostUserId, 'changeSource')) return;
+    if (!room || !isOwnerOrAdmin(room, hostUserId)) return;
 
     const socketsInRoom = await io.in(roomCode).fetchSockets();
 
@@ -592,7 +588,7 @@ function registerRoomSocket(io, socket) {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
-    if (!room || !can(room, actorUserId, 'changeSource')) return;
+    if (!room || !isOwnerOrAdmin(room, actorUserId)) return;
 
     room.isActive = false;
     await room.save();
