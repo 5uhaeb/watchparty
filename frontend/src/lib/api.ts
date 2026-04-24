@@ -1,9 +1,11 @@
+import { guestAuthHeaders } from './guestToken';
+
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 export async function createRoom(payload: { title?: string } = {}) {
   const res = await fetch(`${API}/rooms`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: guestAuthHeaders({ 'Content-Type': 'application/json' }),
     credentials: 'include',
     body: JSON.stringify(payload)
   });

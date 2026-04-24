@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { clearGuestToken, guestAuthHeaders, setGuestToken } from '@/lib/guestToken';
 
 export type Guest = {
   guestId: string;
@@ -20,14 +21,16 @@ const GuestContext = createContext<GuestContextValue | null>(null);
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
+type GuestResponse = Guest & { token?: string };
+
 async function guestFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API}${path}`, {
     ...options,
     credentials: 'include',
-    headers: {
+    headers: guestAuthHeaders({
       'Content-Type': 'application/json',
       ...(options.headers || {}),
-    },
+    }),
   });
 
   if (!res.ok) {
@@ -35,7 +38,9 @@ async function guestFetch(path: string, options: RequestInit = {}) {
     throw new Error(error.message || 'Guest request failed');
   }
 
-  return res.json();
+  const data = await res.json();
+  if (data.token) setGuestToken(data.token);
+  return data;
 }
 
 export function GuestProvider({ children }: { children: ReactNode }) {
@@ -43,7 +48,7 @@ export function GuestProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const bootstrap = async () => {
-    const nextGuest = await guestFetch('/guest/bootstrap', { method: 'POST' });
+    const nextGuest = await guestFetch('/guest/bootstrap', { method: 'POST' }) as GuestResponse;
     setGuest(nextGuest);
     return nextGuest;
   };
@@ -52,13 +57,14 @@ export function GuestProvider({ children }: { children: ReactNode }) {
     const nextGuest = await guestFetch('/guest/me', {
       method: 'PATCH',
       body: JSON.stringify({ displayName }),
-    });
+    }) as GuestResponse;
     setGuest(nextGuest);
     return nextGuest;
   };
 
   const resetIdentity = async () => {
     await guestFetch('/guest/logout', { method: 'POST' });
+    clearGuestToken();
     return bootstrap();
   };
 

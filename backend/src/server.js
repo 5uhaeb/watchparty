@@ -62,7 +62,7 @@ io.use(async (socket, next) => {
     const ip = socket.handshake.address || socket.request.socket.remoteAddress || 'unknown';
     if (!consumeHandshake(ip)) return next(new Error('Rate limited'));
 
-    const result = await getGuestFromToken(getGuestToken(socket.request));
+    const result = await getGuestFromToken(getGuestToken(socket.request, socket.handshake.auth?.token));
     if (!result?.guest) return next(new Error('JWT auth required'));
 
     const guest = serializeGuest(result.guest);

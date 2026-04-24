@@ -12,6 +12,7 @@ import UserList from '@/components/UserList';
 import VideoCallPanel from '@/components/VideoCallPanel';
 import FileError from '@/components/FileError';
 import { useGuest } from '@/components/GuestProvider';
+import { guestAuthHeaders } from '@/lib/guestToken';
 
 type SourceTab = 'youtube' | 'localStream';
 
@@ -152,6 +153,7 @@ export default function RoomPage() {
 
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
       method: 'DELETE',
+      headers: guestAuthHeaders(),
       credentials: 'include',
     });
 
@@ -174,7 +176,7 @@ export default function RoomPage() {
 
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: guestAuthHeaders({ 'Content-Type': 'application/json' }),
       credentials: 'include',
       body: JSON.stringify({ title: nextTitle }),
     });

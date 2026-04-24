@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuest } from '@/components/GuestProvider';
 import { createRoom } from '@/lib/api';
+import { guestAuthHeaders } from '@/lib/guestToken';
 
 export default function DashboardPage() {
   const { guest } = useGuest();
@@ -24,6 +25,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
         credentials: 'include',
+        headers: guestAuthHeaders(),
       });
       if (!res.ok) {
         setJoinError('Room not found. Check the code and try again.');

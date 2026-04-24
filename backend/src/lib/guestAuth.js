@@ -80,15 +80,25 @@ function parseCookies(header = '') {
   }, {});
 }
 
-function getGuestToken(req) {
-  return parseCookies(req.headers.cookie || '')[COOKIE_NAME];
+function getBearerToken(header = '') {
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function getGuestToken(req, fallbackToken = null) {
+  return (
+    getBearerToken(req.headers.authorization) ||
+    req.headers['x-guest-token'] ||
+    fallbackToken ||
+    parseCookies(req.headers.cookie || '')[COOKIE_NAME]
+  );
 }
 
 function guestCookieOptions() {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
     maxAge: COOKIE_MAX_AGE_SECONDS * 1000,
   };
@@ -102,7 +112,7 @@ function clearGuestCookie(res) {
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
   });
 }
@@ -153,7 +163,7 @@ async function bootstrapGuest(req, res) {
   const guest = existing?.guest || await createGuest();
   const nextToken = existing?.refreshed || !existing ? signGuestJwt(guest) : token;
   setGuestCookie(res, nextToken);
-  return guest;
+  return { guest, token: nextToken };
 }
 
 async function requireGuest(req, res, next) {

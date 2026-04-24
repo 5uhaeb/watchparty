@@ -21,8 +21,8 @@ function sanitizeDisplayName(value) {
 
 router.post('/bootstrap', async (req, res) => {
   try {
-    const guest = await bootstrapGuest(req, res);
-    res.json(serializeGuest(guest));
+    const { guest, token } = await bootstrapGuest(req, res);
+    res.json({ ...serializeGuest(guest), token });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -42,8 +42,9 @@ router.patch('/me', requireGuest, async (req, res) => {
     );
     if (!guest) return res.status(404).json({ message: 'Guest not found' });
 
-    setGuestCookie(res, signGuestJwt(guest));
-    res.json(serializeGuest(guest));
+    const token = signGuestJwt(guest);
+    setGuestCookie(res, token);
+    res.json({ ...serializeGuest(guest), token });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
