@@ -12,8 +12,13 @@ if (!redisUrl && isProduction) {
 function createClient() {
   if (usingMockRedis) return new RedisMock();
   return new Redis(redisUrl, {
-    maxRetriesPerRequest: null,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 2000,
+    commandTimeout: 2000,
     enableReadyCheck: false,
+    retryStrategy(times) {
+      return Math.min(times * 200, 1000);
+    },
   });
 }
 

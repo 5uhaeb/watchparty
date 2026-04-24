@@ -28,34 +28,49 @@ function parsePresence(value) {
   }
 }
 
+async function toleratePresenceFailure(action, fallback, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    console.warn(`presence ${action} failed:`, error.message);
+    return fallback;
+  }
+}
+
 async function refreshRoomKeys(roomCode) {
-  await redis.expire(presenceKey(roomCode), ROOM_TTL_SECONDS);
-  await redis.expire(membersKey(roomCode), ROOM_TTL_SECONDS);
+  await toleratePresenceFailure('refresh', null, async () => {
+    await redis.expire(presenceKey(roomCode), ROOM_TTL_SECONDS);
+    await redis.expire(membersKey(roomCode), ROOM_TTL_SECONDS);
+  });
 }
 
 async function getPresence(roomCode, guestId) {
-  return parsePresence(await redis.hget(presenceKey(roomCode), guestId));
+  return toleratePresenceFailure('get', null, async () => (
+    parsePresence(await redis.hget(presenceKey(roomCode), guestId))
+  ));
 }
 
 async function getPresenceList(roomCode) {
-  const rawPresence = await redis.hgetall(presenceKey(roomCode));
-  const members = [];
+  return toleratePresenceFailure('list', [], async () => {
+    const rawPresence = await redis.hgetall(presenceKey(roomCode));
+    const members = [];
 
-  for (const [guestId, value] of Object.entries(rawPresence || {})) {
-    const presence = parsePresence(value);
-    if (!presence) continue;
-    const ttl = await redis.ttl(reconnectTimerKey(guestId));
-    members.push({
-      guestId,
-      ...presence,
-      reconnectExpiresAt:
-        presence.state === 'reconnecting' && ttl > 0
-          ? new Date(Date.now() + ttl * 1000).toISOString()
-          : null,
-    });
-  }
+    for (const [guestId, value] of Object.entries(rawPresence || {})) {
+      const presence = parsePresence(value);
+      if (!presence) continue;
+      const ttl = await redis.ttl(reconnectTimerKey(guestId));
+      members.push({
+        guestId,
+        ...presence,
+        reconnectExpiresAt:
+          presence.state === 'reconnecting' && ttl > 0
+            ? new Date(Date.now() + ttl * 1000).toISOString()
+            : null,
+      });
+    }
 
-  return members.sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+    return members.sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+  });
 }
 
 async function broadcastPresence(io, roomCode) {
@@ -67,7 +82,9 @@ async function broadcastPresence(io, roomCode) {
 
 async function isMember(roomCode, guestId) {
   if (!roomCode || !guestId) return false;
-  return (await redis.sismember(membersKey(roomCode), guestId)) === 1;
+  return toleratePresenceFailure('membership check', false, async () => (
+    (await redis.sismember(membersKey(roomCode), guestId)) === 1
+  ));
 }
 
 async function presenceJoin(io, roomCode, socket) {
@@ -75,7 +92,10 @@ async function presenceJoin(io, roomCode, socket) {
   if (!roomCode || !guestId) return [];
 
   const previous = await getPresence(roomCode, guestId);
-  const wasReconnecting = (await redis.get(reconnectTimerKey(guestId))) === '1' || previous?.state === 'reconnecting';
+  const reconnectTimer = await toleratePresenceFailure('reconnect timer read', null, async () => (
+    redis.get(reconnectTimerKey(guestId))
+  ));
+  const wasReconnecting = reconnectTimer === '1' || previous?.state === 'reconnecting';
   const now = new Date().toISOString();
   const presence = {
     socketId: socket.id,
@@ -86,11 +106,13 @@ async function presenceJoin(io, roomCode, socket) {
     lastSeenAt: now,
   };
 
-  await redis.hset(presenceKey(roomCode), guestId, JSON.stringify(presence));
-  await redis.sadd(membersKey(roomCode), guestId);
-  await redis.set(guestRoomKey(guestId), roomCode, 'EX', ROOM_TTL_SECONDS);
-  await redis.del(reconnectTimerKey(guestId));
-  await refreshRoomKeys(roomCode);
+  await toleratePresenceFailure('join write', null, async () => {
+    await redis.hset(presenceKey(roomCode), guestId, JSON.stringify(presence));
+    await redis.sadd(membersKey(roomCode), guestId);
+    await redis.set(guestRoomKey(guestId), roomCode, 'EX', ROOM_TTL_SECONDS);
+    await redis.del(reconnectTimerKey(guestId));
+    await refreshRoomKeys(roomCode);
+  });
 
   const eventName = wasReconnecting ? 'participant:back' : 'participant:joined';
   io.to(roomCode).emit(eventName, { guestId, roomCode, presence });
@@ -137,13 +159,17 @@ async function applyReapRoomEffects(io, roomCode, leavingGuestId, leavingSocketI
 
 async function reapPresence(io, guestId, roomCode) {
   const current = await getPresence(roomCode, guestId);
-  const timer = await redis.get(reconnectTimerKey(guestId));
+  const timer = await toleratePresenceFailure('reap timer read', null, async () => (
+    redis.get(reconnectTimerKey(guestId))
+  ));
   if (timer || current?.state === 'online') return false;
 
-  await redis.hdel(presenceKey(roomCode), guestId);
-  await redis.srem(membersKey(roomCode), guestId);
-  await redis.del(guestRoomKey(guestId));
-  await redis.del(reconnectTimerKey(guestId));
+  await toleratePresenceFailure('reap write', null, async () => {
+    await redis.hdel(presenceKey(roomCode), guestId);
+    await redis.srem(membersKey(roomCode), guestId);
+    await redis.del(guestRoomKey(guestId));
+    await redis.del(reconnectTimerKey(guestId));
+  });
   await refreshRoomKeys(roomCode);
 
   await applyReapRoomEffects(io, roomCode, guestId, current?.socketId);
@@ -166,7 +192,9 @@ async function presenceDisconnect(io, socket) {
   const guestId = socket.data?.guestId;
   if (!guestId) return;
 
-  const roomCode = socket.roomCode || (await redis.get(guestRoomKey(guestId)));
+  const roomCode = socket.roomCode || await toleratePresenceFailure('disconnect room read', null, async () => (
+    redis.get(guestRoomKey(guestId))
+  ));
   if (!roomCode) return;
 
   const current = await getPresence(roomCode, guestId);
@@ -179,8 +207,10 @@ async function presenceDisconnect(io, socket) {
     lastSeenAt: new Date().toISOString(),
   };
 
-  await redis.hset(presenceKey(roomCode), guestId, JSON.stringify(nextPresence));
-  await redis.set(reconnectTimerKey(guestId), '1', 'EX', RECONNECT_GRACE_SECONDS);
+  await toleratePresenceFailure('disconnect write', null, async () => {
+    await redis.hset(presenceKey(roomCode), guestId, JSON.stringify(nextPresence));
+    await redis.set(reconnectTimerKey(guestId), '1', 'EX', RECONNECT_GRACE_SECONDS);
+  });
   await refreshRoomKeys(roomCode);
 
   io.to(roomCode).emit('participant:reconnecting', { guestId, roomCode });
@@ -190,19 +220,23 @@ async function presenceDisconnect(io, socket) {
 
 async function presenceLeave(io, socket) {
   const guestId = socket.data?.guestId;
-  const roomCode = socket.roomCode || (guestId ? await redis.get(guestRoomKey(guestId)) : null);
+  const roomCode = socket.roomCode || (guestId ? await toleratePresenceFailure('leave room read', null, async () => (
+    redis.get(guestRoomKey(guestId))
+  )) : null);
   if (!guestId || !roomCode) return;
 
-  await redis.del(reconnectTimerKey(guestId));
-  await redis.hset(
-    presenceKey(roomCode),
-    guestId,
-    JSON.stringify({
-      ...(await getPresence(roomCode, guestId)),
-      state: 'reconnecting',
-      lastSeenAt: new Date().toISOString(),
-    })
-  );
+  await toleratePresenceFailure('leave write', null, async () => {
+    await redis.del(reconnectTimerKey(guestId));
+    await redis.hset(
+      presenceKey(roomCode),
+      guestId,
+      JSON.stringify({
+        ...(await getPresence(roomCode, guestId)),
+        state: 'reconnecting',
+        lastSeenAt: new Date().toISOString(),
+      })
+    );
+  });
   await reapPresence(io, guestId, roomCode);
 }
 

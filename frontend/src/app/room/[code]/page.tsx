@@ -39,6 +39,7 @@ export default function RoomPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [connectionToast, setConnectionToast] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const guestId = guest?.guestId ?? '';
   const userName = guest?.displayName ?? 'Guest';
@@ -113,7 +114,14 @@ export default function RoomPage() {
     socket.io.on('reconnect', handleReconnect);
 
     joinCurrentRoom();
-    getRoom(code).then(setRoom).catch(() => {});
+    getRoom(code)
+      .then((nextRoom) => {
+        setLoadError('');
+        setRoom(nextRoom);
+      })
+      .catch((error) => {
+        setLoadError(error instanceof Error ? error.message : 'Could not load this room.');
+      });
 
     return () => {
       socket.off('room:state', handleRoomState);
@@ -345,6 +353,21 @@ export default function RoomPage() {
       {sourceMessage && <p style={{ margin: 0, color: '#ef4444' }}>{sourceMessage}</p>}
     </div>
   );
+
+  if (!room && loadError) {
+    return (
+      <div className="center-screen">
+        <div className="card glass" style={{ padding: '40px', textAlign: 'center' }}>
+          <div className="label-tag" style={{ marginBottom: '12px' }}>Room unavailable</div>
+          <h2>Could not join this room</h2>
+          <p style={{ color: 'var(--text-secondary)' }}>{loadError}</p>
+          <button className="button" onClick={() => router.push('/dashboard')}>
+            Back to dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!room) {
     return (
