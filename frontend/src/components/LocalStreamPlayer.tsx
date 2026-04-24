@@ -11,6 +11,7 @@ type LocalStreamSource = {
   fileSize?: number;
   durationSec?: number;
   hostSocketId?: string;
+  hostGuestId?: string;
 };
 
 type Props = {
@@ -43,6 +44,7 @@ export default function LocalStreamPlayer({
   const [status, setStatus] = useState(isHost ? 'Choose a file to start streaming.' : 'Connecting...');
   const [viewerCount, setViewerCount] = useState(0);
   const [needsPlayClick, setNeedsPlayClick] = useState(false);
+  const [remoteTrackSummary, setRemoteTrackSummary] = useState('');
 
   const fileName = sourceData?.fileName || file?.name || 'Local video';
   const sizeBytes = sourceData?.sizeBytes || sourceData?.fileSize || file?.size;
@@ -143,7 +145,7 @@ export default function LocalStreamPlayer({
         sizeBytes: file.size,
         durationSec: Number.isFinite(video.duration) ? video.duration : undefined,
       });
-      setStatus('Streaming to viewers.');
+      setStatus('Streaming to viewers. Press play if the video is paused.');
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -200,7 +202,15 @@ export default function LocalStreamPlayer({
       const video = viewerVideoRef.current;
       if (!video) return;
 
-      video.srcObject = event.streams[0];
+      const remoteStream = event.streams[0];
+      const videoTracks = remoteStream.getVideoTracks().length;
+      const audioTracks = remoteStream.getAudioTracks().length;
+      setRemoteTrackSummary(`${videoTracks} video / ${audioTracks} audio track${videoTracks + audioTracks === 1 ? '' : 's'}`);
+
+      video.srcObject = remoteStream;
+      video.muted = false;
+      video.volume = 1;
+      video.load();
       video.play().then(
         () => {
           setNeedsPlayClick(false);
@@ -222,6 +232,9 @@ export default function LocalStreamPlayer({
     };
 
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        setStatus((current) => current.startsWith('Connected') ? current : 'Connected. Tap play if video does not start.');
+      }
       if (pc.connectionState === 'failed') {
         setStatus('Connection failed. TURN may be required for this network.');
       }
@@ -269,9 +282,17 @@ export default function LocalStreamPlayer({
   };
 
   const playViewerVideo = () => {
-    viewerVideoRef.current?.play().then(() => {
+    const video = viewerVideoRef.current;
+    if (!video) return;
+
+    video.muted = false;
+    video.volume = 1;
+    video.play().then(() => {
       setNeedsPlayClick(false);
       setStatus('Watching host stream.');
+    }).catch(() => {
+      setNeedsPlayClick(true);
+      setStatus('Browser blocked playback. Tap the video controls to start.');
     });
   };
 
@@ -284,7 +305,7 @@ export default function LocalStreamPlayer({
           </button>
           <span className="label-tag">{viewerCount} viewer{viewerCount === 1 ? '' : 's'}</span>
         </div>
-        <video ref={hostVideoRef} className="local-video-frame" controls playsInline />
+        <video ref={hostVideoRef} className="local-video-frame" controls playsInline preload="metadata" />
         <div className="card glass">
           <h3 style={{ margin: '0 0 8px' }}>Streaming local file</h3>
           <p style={{ color: 'var(--text-secondary)', margin: 0, overflowWrap: 'anywhere' }}>
@@ -307,18 +328,25 @@ export default function LocalStreamPlayer({
         </p>
         <p style={{ color: 'var(--text-secondary)', margin: '8px 0 0', fontSize: '0.85rem' }}>
           {status}
+          {remoteTrackSummary && ` (${remoteTrackSummary})`}
         </p>
       </div>
-      <video ref={viewerVideoRef} className="local-video-frame" autoPlay playsInline title="Controlled by host." />
+      <video
+        ref={viewerVideoRef}
+        className="local-video-frame"
+        autoPlay
+        controls
+        playsInline
+        preload="auto"
+        title="Host stream"
+        onLoadedMetadata={playViewerVideo}
+        onCanPlay={playViewerVideo}
+        onClick={playViewerVideo}
+      />
       <div className="player-toolbar">
-        <button className="button button-secondary" disabled title="Controlled by host.">
-          Controlled by host
+        <button className="button button-secondary" onClick={playViewerVideo}>
+          {needsPlayClick ? 'Play stream' : 'Start audio/video'}
         </button>
-        {needsPlayClick && (
-          <button className="button" onClick={playViewerVideo}>
-            Play stream
-          </button>
-        )}
       </div>
     </div>
   );
