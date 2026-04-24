@@ -4,7 +4,7 @@ services:
     env: node
     rootDir: backend
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: REDIS_URL= npm start
     envVars:
       - key: PORT
         value: 5000
