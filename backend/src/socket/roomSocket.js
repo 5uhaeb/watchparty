@@ -323,7 +323,7 @@ function registerRoomSocket(io, socket) {
       }
     );
 
-    socket.to(targetRoomCode).emit('player:play', payload);
+    socket.to(targetRoomCode).emit('player:play', { ...payload, byUserId: actorUserId });
   });
 
   socket.on('player:pause', async ({ roomCode, userId, positionSec }) => {
@@ -351,7 +351,7 @@ function registerRoomSocket(io, socket) {
       }
     );
 
-    socket.to(targetRoomCode).emit('player:pause', payload);
+    socket.to(targetRoomCode).emit('player:pause', { ...payload, byUserId: actorUserId });
   });
 
   socket.on('player:seek', async ({ roomCode, userId, positionSec }) => {
@@ -378,6 +378,7 @@ function registerRoomSocket(io, socket) {
     socket.to(targetRoomCode).emit('player:seek', {
       positionSec: nextPosition,
       atServerTs,
+      byUserId: actorUserId,
     });
   });
 
@@ -405,6 +406,7 @@ function registerRoomSocket(io, socket) {
     socket.to(targetRoomCode).emit('player:heartbeat', {
       positionSec: nextPosition,
       atServerTs,
+      byUserId: actorUserId,
     });
   });
 
@@ -614,6 +616,26 @@ function registerRoomSocket(io, socket) {
   socket.on('call:leave', ({ roomCode, userId }) => {
     socket.to(roomCode).emit('call:user-left', { userId });
     socket.callUserId = null;
+  });
+
+  socket.on('call:media-state', ({ roomCode, state } = {}) => {
+    const targetRoomCode = roomCode || socket.roomCode;
+    if (!targetRoomCode || !socket.callUserId) return;
+    socket.to(targetRoomCode).emit('call:media-state', {
+      userId: socket.callUserId,
+      socketId: socket.id,
+      state: state || {},
+    });
+  });
+
+  socket.on('call:speaking', ({ roomCode, speaking } = {}) => {
+    const targetRoomCode = roomCode || socket.roomCode;
+    if (!targetRoomCode || !socket.callUserId) return;
+    socket.to(targetRoomCode).emit('call:speaking', {
+      userId: socket.callUserId,
+      socketId: socket.id,
+      speaking: !!speaking,
+    });
   });
 
   socket.on('room:leave', async () => {

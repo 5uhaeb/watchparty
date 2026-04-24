@@ -207,10 +207,17 @@ export default function LocalStreamPlayer({
       else video.pause();
     };
 
-    const onPlay = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => applyPosition(positionSec || 0, true, atServerTs);
-    const onPause = ({ positionSec }: { positionSec: number }) => applyPosition(positionSec || 0, false);
-    const onSeek = ({ positionSec }: { positionSec: number }) => applyPosition(positionSec || 0, !video.paused);
-    const onHeartbeat = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
+    const onPlay = ({ positionSec, atServerTs, byUserId }: { positionSec: number; atServerTs?: number; byUserId?: string }) => {
+      if (byUserId !== currentUserId) applyPosition(positionSec || 0, true, atServerTs);
+    };
+    const onPause = ({ positionSec, byUserId }: { positionSec: number; byUserId?: string }) => {
+      if (byUserId !== currentUserId) applyPosition(positionSec || 0, false);
+    };
+    const onSeek = ({ positionSec, byUserId }: { positionSec: number; byUserId?: string }) => {
+      if (byUserId !== currentUserId) applyPosition(positionSec || 0, !video.paused);
+    };
+    const onHeartbeat = ({ positionSec, atServerTs, byUserId }: { positionSec: number; atServerTs?: number; byUserId?: string }) => {
+      if (byUserId === currentUserId) return;
       if (!video.paused) applyPosition(positionSec || 0, true, atServerTs);
     };
     const onPlayerState = ({ positionSec, isPlaying, serverTs }: { positionSec: number; isPlaying: boolean; serverTs?: number }) => {
@@ -231,7 +238,7 @@ export default function LocalStreamPlayer({
       socket.off('player:heartbeat', onHeartbeat);
       socket.off('player:state', onPlayerState);
     };
-  }, [fallbackUrl, isHost, roomCode]);
+  }, [currentUserId, fallbackUrl, isHost, roomCode]);
 
   useEffect(() => {
     if (!isHost) return;
@@ -359,14 +366,55 @@ export default function LocalStreamPlayer({
       socket.emit('webrtc:viewerReady');
     }, 4000);
 
+    const applyRemotePlayback = ({ positionSec, atServerTs, isPlaying, byUserId }: { positionSec?: number; atServerTs?: number; isPlaying?: boolean; byUserId?: string }) => {
+      if (byUserId === currentUserId) return;
+      const video = viewerVideoRef.current;
+      const audio = viewerAudioRef.current;
+      if (!video) return;
+      const playing = isPlaying ?? true;
+      const latencySec = playing && atServerTs ? Math.max(0, (Date.now() - atServerTs) / 1000) : 0;
+      const target = Math.max(0, Number(positionSec || 0) + latencySec);
+      if (Number.isFinite(target) && Math.abs((video.currentTime || 0) - target) > 0.7) {
+        video.currentTime = target;
+      }
+      if (playing) {
+        video.play().catch(() => setNeedsPlayClick(true));
+        audio?.play().catch(() => setNeedsPlayClick(true));
+      } else {
+        video.pause();
+        audio?.pause();
+      }
+    };
+    const handlePlay = (payload: { positionSec?: number; atServerTs?: number; byUserId?: string }) => applyRemotePlayback({ ...payload, isPlaying: true });
+    const handlePause = (payload: { positionSec?: number; byUserId?: string }) => applyRemotePlayback({ ...payload, isPlaying: false });
+    const handleSeek = (payload: { positionSec?: number; byUserId?: string }) => applyRemotePlayback({ ...payload, isPlaying: !viewerVideoRef.current?.paused });
+    const handleHeartbeat = (payload: { positionSec?: number; atServerTs?: number; byUserId?: string }) => {
+      if (!viewerVideoRef.current?.paused) applyRemotePlayback({ ...payload, isPlaying: true });
+    };
+    const handlePlayerState = (payload: { positionSec?: number; isPlaying?: boolean; serverTs?: number }) => {
+      applyRemotePlayback({ positionSec: payload.positionSec, isPlaying: payload.isPlaying, atServerTs: payload.serverTs });
+    };
+    socket.on('player:play', handlePlay);
+    socket.on('player:pause', handlePause);
+    socket.on('player:seek', handleSeek);
+    socket.on('player:heartbeat', handleHeartbeat);
+    socket.on('player:state', handlePlayerState);
+    const stateTimer = window.setTimeout(() => socket.emit('player:state', { roomCode }), 300);
+
     return () => {
       socket.off('webrtc:signal', handleSignal);
+      socket.off('player:play', handlePlay);
+      socket.off('player:pause', handlePause);
+      socket.off('player:seek', handleSeek);
+      socket.off('player:heartbeat', handleHeartbeat);
+      socket.off('player:state', handlePlayerState);
+      window.clearTimeout(stateTimer);
       window.clearInterval(readyIntervalId);
       viewerPeerRef.current = null;
       pc.close();
       if (viewerVideoRef.current) viewerVideoRef.current.srcObject = null;
     };
-  }, [isHost, sourceData?.hostSocketId]);
+  }, [currentUserId, isHost, roomCode, sourceData?.hostSocketId]);
 
   const stopStreaming = () => {
     cleanupHostStream(true);

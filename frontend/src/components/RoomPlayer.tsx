@@ -21,6 +21,7 @@ interface Props {
 type TimedPlayback = {
   positionSec: number;
   atServerTs?: number;
+  byUserId?: string;
 };
 
 export default function RoomPlayer({
@@ -103,16 +104,16 @@ export default function RoomPlayer({
     if (adapterType === 'localStream') return;
 
     const onPlay = (payload: TimedPlayback) => {
-      if (!isHost) applyPlay(payload);
+      if (payload.byUserId !== currentUserId) applyPlay(payload);
     };
     const onPause = (payload: TimedPlayback) => {
-      if (!isHost) applyPause(payload);
+      if (payload.byUserId !== currentUserId) applyPause(payload);
     };
-    const onSeek = (payload: { positionSec: number }) => {
-      if (!isHost) applySeek(payload);
+    const onSeek = (payload: { positionSec: number; byUserId?: string }) => {
+      if (payload.byUserId !== currentUserId) applySeek(payload);
     };
-    const onHeartbeat = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
-      if (isHost || !playerRef.current) return;
+    const onHeartbeat = ({ positionSec, atServerTs, byUserId }: { positionSec: number; atServerTs?: number; byUserId?: string }) => {
+      if (byUserId === currentUserId || !playerRef.current) return;
 
       const latencySec =
         playerRef.current.getState() === 'playing' && atServerTs
@@ -163,8 +164,10 @@ export default function RoomPlayer({
     socket.on('player:heartbeat', onHeartbeat);
     socket.on('reconnect:sync', onReconnectSync);
     socket.on('player:state', onPlayerState);
+    const stateTimer = window.setTimeout(() => socket.emit('player:state', { roomCode }), 250);
 
     return () => {
+      window.clearTimeout(stateTimer);
       socket.off('player:play', onPlay);
       socket.off('player:pause', onPause);
       socket.off('player:seek', onSeek);
@@ -172,7 +175,7 @@ export default function RoomPlayer({
       socket.off('reconnect:sync', onReconnectSync);
       socket.off('player:state', onPlayerState);
     };
-  }, [adapterType, applyPause, applyPlay, applySeek, isHost, withRemoteGuard]);
+  }, [adapterType, applyPause, applyPlay, applySeek, currentUserId, roomCode, withRemoteGuard]);
 
   useEffect(() => {
     if (!isHost || adapterType === 'localStream') return;

@@ -10,6 +10,7 @@ interface PeerState {
   name: string;
   stream: MediaStream | null;
   status: string;
+  badges: string[];
 }
 
 const MAX_CALL_USERS = 10;
@@ -41,6 +42,7 @@ export default function VideoCallPanel({
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [callError, setCallError] = useState('');
+  const [localBadges, setLocalBadges] = useState<string[]>([]);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -63,8 +65,30 @@ export default function VideoCallPanel({
       if (current.some((peer) => peer.socketId === socketId)) {
         return current.map((peer) => peer.socketId === socketId ? { ...peer, userId, name } : peer);
       }
-      return [...current, { socketId, userId, name, stream: null, status: 'Connecting' }];
+      return [...current, { socketId, userId, name, stream: null, status: 'Connecting', badges: [] }];
     });
+  };
+
+  const flashLocalBadge = (badge: string) => {
+    setLocalBadges((current) => Array.from(new Set([...current, badge])));
+    window.setTimeout(() => {
+      setLocalBadges((current) => current.filter((item) => item !== badge));
+    }, 3800);
+  };
+
+  const flashPeerBadge = (socketId: string, badge: string) => {
+    updatePeer(socketId, {
+      badges: Array.from(new Set([...(peersStateRef.current.find((peer) => peer.socketId === socketId)?.badges || []), badge])),
+    });
+    window.setTimeout(() => {
+      setPeers((current) =>
+        current.map((peer) =>
+          peer.socketId === socketId
+            ? { ...peer, badges: peer.badges.filter((item) => item !== badge) }
+            : peer
+        )
+      );
+    }, 3800);
   };
 
   const createPC = (remoteSocketId: string, remoteUserId: string, remoteName: string, initiator: boolean) => {
@@ -179,6 +203,8 @@ export default function VideoCallPanel({
       track.enabled = next;
     });
     setIsMicOn(next);
+    flashLocalBadge(next ? 'Mic on' : 'Muted');
+    socket.emit('call:media-state', { roomCode, state: { micOn: next, camOn: isCamOn } });
   };
 
   const toggleCam = () => {
@@ -187,7 +213,40 @@ export default function VideoCallPanel({
       track.enabled = next;
     });
     setIsCamOn(next);
+    flashLocalBadge(next ? 'Camera on' : 'Camera off');
+    socket.emit('call:media-state', { roomCode, state: { micOn: isMicOn, camOn: next } });
   };
+
+  useEffect(() => {
+    if (!isInCall || !localStreamRef.current) return;
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(localStreamRef.current);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    let lastSpeaking = false;
+    let lastEmitAt = 0;
+
+    const intervalId = window.setInterval(() => {
+      if (!isMicOn) return;
+      analyser.getByteFrequencyData(samples);
+      const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+      const speaking = average > 12;
+      const now = Date.now();
+      if (speaking) flashLocalBadge('Speaking');
+      if (speaking !== lastSpeaking || (speaking && now - lastEmitAt > 1200)) {
+        socket.emit('call:speaking', { roomCode, speaking });
+        lastSpeaking = speaking;
+        lastEmitAt = now;
+      }
+    }, 300);
+
+    return () => {
+      window.clearInterval(intervalId);
+      audioContext.close().catch(() => null);
+    };
+  }, [isInCall, isMicOn, roomCode]);
 
   useEffect(() => {
     if (!isInCall) return;
@@ -211,6 +270,18 @@ export default function VideoCallPanel({
     const handleNameChanged = ({ guestId, displayName }: { guestId?: string; displayName?: string }) => {
       if (!guestId || !displayName) return;
       setPeers((current) => current.map((peer) => peer.userId === guestId ? { ...peer, name: displayName } : peer));
+    };
+
+    const handleMediaState = ({ socketId, state }: { socketId?: string; state?: { micOn?: boolean; camOn?: boolean } }) => {
+      if (!socketId || !state) return;
+      if (state.micOn === false) flashPeerBadge(socketId, 'Muted');
+      if (state.micOn === true) flashPeerBadge(socketId, 'Mic on');
+      if (state.camOn === false) flashPeerBadge(socketId, 'Camera off');
+      if (state.camOn === true) flashPeerBadge(socketId, 'Camera on');
+    };
+
+    const handleSpeaking = ({ socketId, speaking }: { socketId?: string; speaking?: boolean }) => {
+      if (socketId && speaking) flashPeerBadge(socketId, 'Speaking');
     };
 
     const handleSignal = async ({
@@ -277,6 +348,8 @@ export default function VideoCallPanel({
     socket.on('call:user-left', handleUserLeft);
     socket.on('guest:nameChanged', handleNameChanged);
     socket.on('participant:updated', handleNameChanged);
+    socket.on('call:media-state', handleMediaState);
+    socket.on('call:speaking', handleSpeaking);
 
     return () => {
       socket.off('call:members', handleMembers);
@@ -286,6 +359,8 @@ export default function VideoCallPanel({
       socket.off('call:user-left', handleUserLeft);
       socket.off('guest:nameChanged', handleNameChanged);
       socket.off('participant:updated', handleNameChanged);
+      socket.off('call:media-state', handleMediaState);
+      socket.off('call:speaking', handleSpeaking);
     };
   }, [isInCall, currentUser.id, roomCode]);
 
@@ -337,6 +412,7 @@ export default function VideoCallPanel({
       >
         <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
           <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <StatusBadges badges={localBadges} />
           {!isCamOn && (
             <div style={{ position: 'absolute', inset: 0, background: '#0d1117', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 700, color: 'white' }}>
               {currentUser.name.charAt(0).toUpperCase()}
@@ -414,6 +490,19 @@ function SpeakerIcon() {
   );
 }
 
+function StatusBadges({ badges }: { badges: string[] }) {
+  if (!badges.length) return null;
+  return (
+    <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
+      {badges.map((badge) => (
+        <span key={badge} style={{ background: 'rgba(0,0,0,0.7)', color: '#fff', padding: '3px 7px', borderRadius: 7, fontSize: '0.72rem', fontWeight: 700 }}>
+          {badge}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function PeerVideo({ peer, audioUnlocked }: { peer: PeerState; audioUnlocked: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -433,6 +522,7 @@ function PeerVideo({ peer, audioUnlocked }: { peer: PeerState; audioUnlocked: bo
 
   return (
     <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+      <StatusBadges badges={peer.badges} />
       {peer.stream ? (
         <>
           <video ref={videoRef} data-call-media autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
