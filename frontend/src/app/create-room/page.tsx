@@ -1,17 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createRoom } from '@/lib/api';
+import { useGuest } from '@/components/GuestProvider';
 
 export default function CreateRoomPage() {
   const router = useRouter();
+  const { guest, updateName } = useGuest();
   const [title, setTitle] = useState('');
+  const [nameDraft, setNameDraft] = useState(guest?.displayName || '');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (guest?.displayName) setNameDraft(guest.displayName);
+  }, [guest?.displayName]);
 
   const handleCreate = async () => {
     try {
       setLoading(true);
+      const nextName = nameDraft.trim();
+      if (nextName && nextName !== guest?.displayName) {
+        await updateName(nextName);
+      }
       const room = await createRoom(title.trim() ? { title } : {});
       router.push(`/room/${room.code}`);
     } catch (error) {
@@ -32,6 +43,17 @@ export default function CreateRoomPage() {
       </header>
 
       <div className="card glass form-stack">
+        <label style={{ display: 'grid', gap: 8 }}>
+          <span className="label-tag">Display name</span>
+          <input
+            className="input"
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
+            maxLength={24}
+            placeholder="Your guest name"
+          />
+        </label>
+
         <label style={{ display: 'grid', gap: 8 }}>
           <span className="label-tag">Optional title</span>
           <input

@@ -266,9 +266,17 @@ export default function LocalStreamPlayer({
 
     socket.on('webrtc:signal', handleSignal);
     socket.emit('webrtc:viewerReady');
+    const readyIntervalId = window.setInterval(() => {
+      if (viewerVideoRef.current?.srcObject) {
+        window.clearInterval(readyIntervalId);
+        return;
+      }
+      socket.emit('webrtc:viewerReady');
+    }, 4000);
 
     return () => {
       socket.off('webrtc:signal', handleSignal);
+      window.clearInterval(readyIntervalId);
       viewerPeerRef.current = null;
       pc.close();
       if (viewerVideoRef.current) viewerVideoRef.current.srcObject = null;
@@ -341,6 +349,8 @@ export default function LocalStreamPlayer({
         title="Host stream"
         onLoadedMetadata={playViewerVideo}
         onCanPlay={playViewerVideo}
+        onPlaying={() => setStatus('Watching host stream.')}
+        onWaiting={() => setStatus('Buffering host stream...')}
         onClick={playViewerVideo}
       />
       <div className="player-toolbar">

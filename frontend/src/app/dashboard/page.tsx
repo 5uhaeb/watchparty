@@ -1,16 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGuest } from '@/components/GuestProvider';
 import { createRoom } from '@/lib/api';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
 export default function DashboardPage() {
-  const { guest } = useGuest();
+  const { guest, updateName } = useGuest();
   const router = useRouter();
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
+  const [nameDraft, setNameDraft] = useState(guest?.displayName || '');
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -23,6 +24,10 @@ export default function DashboardPage() {
     setJoining(true);
     setJoinError('');
     try {
+      const nextName = nameDraft.trim();
+      if (nextName && nextName !== guest?.displayName) {
+        await updateName(nextName);
+      }
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/rooms/${code}`, {
         credentials: 'include',
         headers: guestAuthHeaders(),
@@ -42,6 +47,10 @@ export default function DashboardPage() {
   const handleCreateRoom = async () => {
     setCreating(true);
     try {
+      const nextName = nameDraft.trim();
+      if (nextName && nextName !== guest?.displayName) {
+        await updateName(nextName);
+      }
       const room = await createRoom();
       router.push(`/room/${room.code}`);
     } catch {
@@ -57,6 +66,10 @@ export default function DashboardPage() {
     { number: '3', title: 'Watch together', desc: 'Playback stays synced, or viewers watch the host stream live.' },
     { number: '4', title: 'Chat and call', desc: 'Live chat and WebRTC video call stay inside the room.' },
   ];
+
+  useEffect(() => {
+    if (guest?.displayName) setNameDraft(guest.displayName);
+  }, [guest?.displayName]);
 
   return (
     <div className="dashboard-stack">
@@ -100,6 +113,14 @@ export default function DashboardPage() {
           Got an invite link or room code? Enter it below.
         </p>
         <div className="form-row">
+          <input
+            className="input"
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
+            placeholder="Display name"
+            maxLength={24}
+            style={{ flex: 1, minWidth: '180px', margin: 0 }}
+          />
           <input
             className="input"
             value={joinCode}

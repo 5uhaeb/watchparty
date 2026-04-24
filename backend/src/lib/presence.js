@@ -126,6 +126,46 @@ async function presenceJoin(io, roomCode, socket) {
   return getPresenceList(roomCode);
 }
 
+async function updatePresenceName(io, socket, displayName) {
+  const guestId = socket.data?.guestId;
+  const roomCode = socket.roomCode;
+  if (!guestId || !roomCode || !displayName) return;
+
+  const current = await getPresence(roomCode, guestId);
+  const nextPresence = {
+    ...(current || {}),
+    socketId: socket.id,
+    displayName,
+    avatarHue: socket.data?.avatarHue ?? current?.avatarHue ?? 0,
+    state: current?.state || 'online',
+    joinedAt: current?.joinedAt || new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  };
+
+  await toleratePresenceFailure('name update', null, async () => {
+    await redis.hset(presenceKey(roomCode), guestId, JSON.stringify(nextPresence));
+  });
+
+  io.to(roomCode).emit('participant:updated', {
+    guestId,
+    roomCode,
+    displayName,
+    presence: nextPresence,
+  });
+  await broadcastPresence(io, roomCode);
+}
+
+async function getCallMembers(io, roomCode, selfSocketId) {
+  const sockets = await io.in(roomCode).fetchSockets();
+  return sockets
+    .filter((roomSocket) => roomSocket.id !== selfSocketId && roomSocket.callUserId)
+    .map((roomSocket) => ({
+      socketId: roomSocket.id,
+      userId: roomSocket.callUserId,
+      name: roomSocket.callName || roomSocket.data?.displayName || roomSocket.callUserId,
+    }));
+}
+
 async function applyReapRoomEffects(io, roomCode, leavingGuestId, leavingSocketId) {
   const room = await Room.findOne({ code: roomCode, isActive: true });
   if (!room) return room;
@@ -252,4 +292,6 @@ module.exports = {
   presenceLeave,
   getPresenceList,
   isMember,
+  updatePresenceName,
+  getCallMembers,
 };

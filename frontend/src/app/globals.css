@@ -347,8 +347,15 @@ textarea {
   font-size: 0.85rem;
 }
 
-.source-pill {
-  pointer-events: none;
+.source-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .player-shell {

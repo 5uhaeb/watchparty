@@ -87,18 +87,29 @@ export default function UserList({
     const handleLeft = ({ guestId }: { guestId: string }) => {
       setParticipants((current) => current.filter((user) => normalizeParticipant(user).guestId !== guestId));
     };
+    const handleUpdated = ({ guestId, displayName, presence }: { guestId: string; displayName?: string; presence?: Participant }) => {
+      setParticipants((current) =>
+        current.map((user) =>
+          normalizeParticipant(user).guestId === guestId
+            ? normalizeParticipant({ ...user, ...(presence || {}), displayName: displayName || presence?.displayName || user.displayName })
+            : user
+        )
+      );
+    };
 
     socket.on('room:state', handleRoomState);
     socket.on('room:presence', handlePresence);
     socket.on('participant:back', handleBack);
     socket.on('participant:reconnecting', handleReconnecting);
     socket.on('participant:left', handleLeft);
+    socket.on('participant:updated', handleUpdated);
     return () => {
       socket.off('room:state', handleRoomState);
       socket.off('room:presence', handlePresence);
       socket.off('participant:back', handleBack);
       socket.off('participant:reconnecting', handleReconnecting);
       socket.off('participant:left', handleLeft);
+      socket.off('participant:updated', handleUpdated);
     };
   }, []);
 

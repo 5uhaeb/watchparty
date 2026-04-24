@@ -6,6 +6,8 @@ const {
   presenceDisconnect,
   presenceLeave,
   isMember,
+  updatePresenceName,
+  getCallMembers,
 } = require('../lib/presence');
 
 function serializeMessage(message) {
@@ -161,6 +163,23 @@ function serializePlayerState(room) {
 }
 
 function registerRoomSocket(io, socket) {
+  socket.on('guest:nameChanged', async ({ displayName } = {}) => {
+    const name = typeof displayName === 'string' ? displayName.trim() : '';
+    if (name.length < 2 || name.length > 24) return;
+
+    socket.data.displayName = name;
+    if (socket.userData) socket.userData.name = name;
+    if (socket.callUserId) socket.callName = name;
+
+    await updatePresenceName(io, socket, name);
+    if (socket.roomCode) {
+      io.to(socket.roomCode).emit('guest:nameChanged', {
+        guestId: socket.data?.guestId,
+        displayName: name,
+      });
+    }
+  });
+
   socket.on('user:join', ({ userId }) => {
     const guestId = socket.data?.guestId || userId;
     if (!guestId) return;
@@ -549,10 +568,22 @@ function registerRoomSocket(io, socket) {
     }
   });
 
-  socket.on('call:join', ({ roomCode, userId, name }) => {
+  socket.on('call:join', async ({ roomCode, userId, name }) => {
     socket.callUserId = userId;
-    socket.callName = name;
-    socket.to(roomCode).emit('call:user-joined', { userId, name });
+    socket.callName = socket.data?.displayName || name || userId;
+    socket.join(roomCode);
+    socket.roomCode ||= roomCode;
+
+    const members = await getCallMembers(io, roomCode, socket.id);
+    if (members.length >= 10) {
+      socket.emit('call:full', { limit: 10 });
+      socket.callUserId = null;
+      socket.callName = null;
+      return;
+    }
+
+    socket.emit('call:members', { members });
+    socket.to(roomCode).emit('call:user-joined', { userId, name: socket.callName });
   });
 
   socket.on('call:signal', ({ to, from, signal }) => {

@@ -7,6 +7,7 @@ import { getRoomMessages } from '@/lib/api';
 type Message = {
   id?: string;
   _id?: string;
+  userId?: string;
   userName?: string;
   username?: string;
   text: string;
@@ -31,6 +32,7 @@ export default function ChatBox({
   const [hasOlder, setHasOlder] = useState(true);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [namesByGuestId, setNamesByGuestId] = useState<Record<string, string>>({});
 
   const scrollBoxRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -57,6 +59,21 @@ export default function ChatBox({
       setMessages((prev) => mergeMessages(prev, [message], 'append'));
     };
 
+    const handleNameChanged = ({ guestId, displayName }: { guestId?: string; displayName?: string }) => {
+      if (!guestId || !displayName) return;
+      setNamesByGuestId((current) => ({ ...current, [guestId]: displayName }));
+    };
+
+    const handlePresence = (payload: { members?: Array<{ guestId?: string; displayName?: string }> }) => {
+      const nextNames: Record<string, string> = {};
+      for (const member of payload.members || []) {
+        if (member.guestId && member.displayName) nextNames[member.guestId] = member.displayName;
+      }
+      if (Object.keys(nextNames).length) {
+        setNamesByGuestId((current) => ({ ...current, ...nextNames }));
+      }
+    };
+
     const handleHistory = (history: Message[]) => {
       setMessages((prev) => mergeMessages(prev, history, prev.length ? 'prepend' : 'replace'));
       setShouldStickToBottom(true);
@@ -81,12 +98,18 @@ export default function ChatBox({
     socket.on('chat:new', handleNewMessage);
     socket.on('chat:history', handleHistory);
     socket.on('room:state', handleRoomState);
+    socket.on('room:presence', handlePresence);
+    socket.on('guest:nameChanged', handleNameChanged);
+    socket.on('participant:updated', handleNameChanged);
     socket.on('rate:limited', handleRateLimited);
 
     return () => {
       socket.off('chat:new', handleNewMessage);
       socket.off('chat:history', handleHistory);
       socket.off('room:state', handleRoomState);
+      socket.off('room:presence', handlePresence);
+      socket.off('guest:nameChanged', handleNameChanged);
+      socket.off('participant:updated', handleNameChanged);
       socket.off('rate:limited', handleRateLimited);
     };
   }, []);
@@ -192,7 +215,9 @@ export default function ChatBox({
           >
             {!message.isSystem && (
               <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                {message.username || message.userName}
+                {message.userId && namesByGuestId[message.userId]
+                  ? namesByGuestId[message.userId]
+                  : message.username || message.userName}
               </div>
             )}
             <div>{message.text}</div>

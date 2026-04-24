@@ -2,6 +2,7 @@
 
 import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { clearGuestToken, guestAuthHeaders, setGuestToken } from '@/lib/guestToken';
+import { socket } from '@/lib/socket';
 
 export type Guest = {
   guestId: string;
@@ -59,6 +60,7 @@ export function GuestProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ displayName }),
     }) as GuestResponse;
     setGuest(nextGuest);
+    socket.emit('guest:nameChanged', { displayName: nextGuest.displayName });
     return nextGuest;
   };
 

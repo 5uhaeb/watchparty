@@ -477,9 +477,9 @@ export default function RoomPage() {
           >
             {showCall ? 'Hide call' : 'Video call'}
           </button>
-          <div className="button button-secondary source-pill">
-            {(activeSourceType || 'no source').toUpperCase()}
-          </div>
+          <span className="source-label">
+            Source: {(activeSourceType || 'no source').replace(/([a-z])([A-Z])/g, '$1 $2')}
+          </span>
           <button className="button button-secondary" onClick={leaveRoom}>
             Leave
           </button>
@@ -504,19 +504,19 @@ export default function RoomPage() {
               className={`button ${room.permissions?.changeSource === 'all' ? '' : 'button-secondary'}`}
               onClick={() => toggleGuestPermission('changeSource')}
             >
-              Change source: {room.permissions?.changeSource === 'all' ? 'Guests' : 'Admins'}
+              {room.permissions?.changeSource === 'all' ? '✓ ' : ''}Change source: {room.permissions?.changeSource === 'all' ? 'Guests' : 'Admins'}
             </button>
             <button
               className={`button ${room.permissions?.controlPlayback === 'all' ? '' : 'button-secondary'}`}
               onClick={() => toggleGuestPermission('controlPlayback')}
             >
-              Playback: {room.permissions?.controlPlayback === 'all' ? 'Guests' : 'Admins'}
+              {room.permissions?.controlPlayback === 'all' ? '✓ ' : ''}Playback: {room.permissions?.controlPlayback === 'all' ? 'Guests' : 'Admins'}
             </button>
             <button
               className={`button ${room.permissions?.editTitle === 'all' ? '' : 'button-secondary'}`}
               onClick={() => toggleGuestPermission('editTitle')}
             >
-              Title: {room.permissions?.editTitle === 'all' ? 'Guests' : 'Admins'}
+              {room.permissions?.editTitle === 'all' ? '✓ ' : ''}Title: {room.permissions?.editTitle === 'all' ? 'Guests' : 'Admins'}
             </button>
           </div>
         </div>
