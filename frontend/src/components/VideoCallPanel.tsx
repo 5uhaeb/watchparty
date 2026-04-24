@@ -5,6 +5,7 @@ import { socket } from '@/lib/socket';
 import { ICE_SERVERS } from '@/lib/iceServers';
 
 interface PeerState {
+  socketId: string;
   userId: string;
   name: string;
   stream: MediaStream | null;
@@ -44,29 +45,34 @@ export default function VideoCallPanel({
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peersStateRef = useRef<PeerState[]>([]);
 
-  const updatePeer = (userId: string, patch: Partial<PeerState>) => {
+  useEffect(() => {
+    peersStateRef.current = peers;
+  }, [peers]);
+
+  const updatePeer = (socketId: string, patch: Partial<PeerState>) => {
     setPeers((current) =>
-      current.map((peer) => peer.userId === userId ? { ...peer, ...patch } : peer)
+      current.map((peer) => peer.socketId === socketId ? { ...peer, ...patch } : peer)
     );
   };
 
-  const ensurePeer = (userId: string, name = userId) => {
+  const ensurePeer = (socketId: string, userId: string, name = userId) => {
     setPeers((current) => {
-      if (current.some((peer) => peer.userId === userId)) {
-        return current.map((peer) => peer.userId === userId ? { ...peer, name } : peer);
+      if (current.some((peer) => peer.socketId === socketId)) {
+        return current.map((peer) => peer.socketId === socketId ? { ...peer, userId, name } : peer);
       }
-      return [...current, { userId, name, stream: null, status: 'Connecting' }];
+      return [...current, { socketId, userId, name, stream: null, status: 'Connecting' }];
     });
   };
 
-  const createPC = (remoteUserId: string, remoteName: string, initiator: boolean) => {
-    const existing = pcsRef.current.get(remoteUserId);
+  const createPC = (remoteSocketId: string, remoteUserId: string, remoteName: string, initiator: boolean) => {
+    const existing = pcsRef.current.get(remoteSocketId);
     if (existing) return existing;
 
-    ensurePeer(remoteUserId, remoteName);
+    ensurePeer(remoteSocketId, remoteUserId, remoteName);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    pcsRef.current.set(remoteUserId, pc);
+    pcsRef.current.set(remoteSocketId, pc);
 
     localStreamRef.current?.getTracks().forEach((track) => {
       pc.addTrack(track, localStreamRef.current!);
@@ -80,23 +86,23 @@ export default function VideoCallPanel({
           remoteStream.addTrack(track);
         }
       });
-      updatePeer(remoteUserId, { stream: remoteStream, status: 'Connected' });
+      updatePeer(remoteSocketId, { stream: remoteStream, status: 'Connected' });
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') updatePeer(remoteUserId, { status: 'Connected' });
-      if (pc.connectionState === 'connecting') updatePeer(remoteUserId, { status: 'Connecting' });
+      if (pc.connectionState === 'connected') updatePeer(remoteSocketId, { status: 'Connected' });
+      if (pc.connectionState === 'connecting') updatePeer(remoteSocketId, { status: 'Connecting' });
       if (['failed', 'disconnected'].includes(pc.connectionState)) {
-        updatePeer(remoteUserId, { status: 'Reconnecting' });
+        updatePeer(remoteSocketId, { status: 'Reconnecting' });
         pc.restartIce?.();
       }
-      if (pc.connectionState === 'closed') updatePeer(remoteUserId, { status: 'Left' });
+      if (pc.connectionState === 'closed') updatePeer(remoteSocketId, { status: 'Left' });
     };
 
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       socket.emit('call:signal', {
-        to: remoteUserId,
+        to: remoteSocketId,
         from: currentUser.id,
         signal: { type: 'ice-candidate', candidate: event.candidate },
       });
@@ -107,12 +113,12 @@ export default function VideoCallPanel({
         .then((offer) => pc.setLocalDescription(offer))
         .then(() => {
           socket.emit('call:signal', {
-            to: remoteUserId,
+            to: remoteSocketId,
             from: currentUser.id,
             signal: { type: 'offer', sdp: pc.localDescription },
           });
         })
-        .catch(() => updatePeer(remoteUserId, { status: 'Could not connect' }));
+        .catch(() => updatePeer(remoteSocketId, { status: 'Could not connect' }));
     }
 
     return pc;
@@ -177,15 +183,15 @@ export default function VideoCallPanel({
   useEffect(() => {
     if (!isInCall) return;
 
-    const handleMembers = ({ members }: { members?: Array<{ userId: string; name: string }> }) => {
+    const handleMembers = ({ members }: { members?: Array<{ socketId: string; userId: string; name: string }> }) => {
       for (const member of members || []) {
-        if (member.userId !== currentUser.id) createPC(member.userId, member.name, true);
+        if (member.userId !== currentUser.id) createPC(member.socketId, member.userId, member.name, true);
       }
     };
 
-    const handleUserJoined = ({ userId, name }: { userId: string; name: string }) => {
+    const handleUserJoined = ({ socketId, userId, name }: { socketId: string; userId: string; name: string }) => {
       if (userId === currentUser.id) return;
-      createPC(userId, name, true);
+      createPC(socketId, userId, name, true);
     };
 
     const handleFull = ({ limit }: { limit: number }) => {
@@ -195,26 +201,30 @@ export default function VideoCallPanel({
 
     const handleNameChanged = ({ guestId, displayName }: { guestId?: string; displayName?: string }) => {
       if (!guestId || !displayName) return;
-      updatePeer(guestId, { name: displayName });
+      setPeers((current) => current.map((peer) => peer.userId === guestId ? { ...peer, name: displayName } : peer));
     };
 
     const handleSignal = async ({
-      from,
+      fromSocketId,
+      fromUserId,
+      fromName,
       signal
     }: {
-      from: string;
+      fromSocketId: string;
+      fromUserId?: string;
+      fromName?: string;
       signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
     }) => {
-      let pc = pcsRef.current.get(from);
+      let pc = pcsRef.current.get(fromSocketId);
 
       try {
         if (signal.type === 'offer') {
-          if (!pc) pc = createPC(from, from, false);
+          if (!pc) pc = createPC(fromSocketId, fromUserId || fromSocketId, fromName || fromUserId || fromSocketId, false);
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit('call:signal', {
-            to: from,
+            to: fromSocketId,
             from: currentUser.id,
             signal: { type: 'answer', sdp: pc.localDescription },
           });
@@ -224,13 +234,18 @@ export default function VideoCallPanel({
           await pc.addIceCandidate(new RTCIceCandidate(signal.candidate!));
         }
       } catch {
-        updatePeer(from, { status: 'Signal failed' });
+        updatePeer(fromSocketId, { status: 'Signal failed' });
       }
     };
 
     const handleUserLeft = ({ userId }: { userId: string }) => {
-      pcsRef.current.get(userId)?.close();
-      pcsRef.current.delete(userId);
+      for (const [socketId, pc] of pcsRef.current) {
+        const peer = peersStateRef.current.find((item) => item.socketId === socketId);
+        if (peer?.userId === userId) {
+          pc.close();
+          pcsRef.current.delete(socketId);
+        }
+      }
       setPeers((current) => current.filter((peer) => peer.userId !== userId));
     };
 
@@ -312,7 +327,7 @@ export default function VideoCallPanel({
         </div>
 
         {peers.map((peer) => (
-          <PeerVideo key={peer.userId} peer={peer} audioUnlocked={audioUnlocked} />
+          <PeerVideo key={peer.socketId} peer={peer} audioUnlocked={audioUnlocked} />
         ))}
       </div>
 

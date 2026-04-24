@@ -17,6 +17,7 @@ type LocalStreamSource = {
 type Props = {
   roomCode: string;
   isHost: boolean;
+  currentUserId?: string;
   file?: File | null;
   sourceData?: LocalStreamSource;
   onStopped?: () => void;
@@ -30,6 +31,7 @@ type CapturableVideo = HTMLVideoElement & {
 export default function LocalStreamPlayer({
   roomCode,
   isHost,
+  currentUserId,
   file,
   sourceData,
   onStopped,
@@ -37,6 +39,7 @@ export default function LocalStreamPlayer({
   const hostVideoRef = useRef<CapturableVideo | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
   const viewerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const fallbackVideoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
@@ -46,10 +49,18 @@ export default function LocalStreamPlayer({
   const [viewerCount, setViewerCount] = useState(0);
   const [needsPlayClick, setNeedsPlayClick] = useState(false);
   const [remoteTrackSummary, setRemoteTrackSummary] = useState('');
+  const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
+  const [fallbackFileName, setFallbackFileName] = useState('');
 
   const fileName = sourceData?.fileName || file?.name || 'Local video';
   const sizeBytes = sourceData?.sizeBytes || sourceData?.fileSize || file?.size;
   const durationSec = sourceData?.durationSec;
+
+  useEffect(() => {
+    return () => {
+      if (fallbackUrl) URL.revokeObjectURL(fallbackUrl);
+    };
+  }, [fallbackUrl]);
 
   const closeHostPeers = useCallback(() => {
     peersRef.current.forEach((pc) => pc.close());
@@ -148,6 +159,9 @@ export default function LocalStreamPlayer({
       });
       setStatus('Streaming to viewers. Press play if the video is paused.');
     };
+    const emitPlay = () => socket.emit('player:play', { roomCode, userId: currentUserId, positionSec: video.currentTime || 0 });
+    const emitPause = () => socket.emit('player:pause', { roomCode, userId: currentUserId, positionSec: video.currentTime || 0 });
+    const emitSeek = () => socket.emit('player:seek', { roomCode, userId: currentUserId, positionSec: video.currentTime || 0 });
     const handlePlaybackReady = () => {
       captureHostStream();
       for (const viewerSocketId of peersRef.current.keys()) {
@@ -156,16 +170,68 @@ export default function LocalStreamPlayer({
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('play', emitPlay);
+    video.addEventListener('pause', emitPause);
+    video.addEventListener('seeked', emitSeek);
     video.addEventListener('play', handlePlaybackReady);
     video.addEventListener('canplay', handlePlaybackReady);
+    const heartbeatId = window.setInterval(() => {
+      if (!video.paused && !video.ended) {
+        socket.emit('player:heartbeat', { roomCode, positionSec: video.currentTime || 0 });
+      }
+    }, 3000);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('play', emitPlay);
+      video.removeEventListener('pause', emitPause);
+      video.removeEventListener('seeked', emitSeek);
       video.removeEventListener('play', handlePlaybackReady);
       video.removeEventListener('canplay', handlePlaybackReady);
+      window.clearInterval(heartbeatId);
       cleanupHostStream(true);
     };
-  }, [captureHostStream, cleanupHostStream, createOfferForViewer, file, isHost]);
+  }, [captureHostStream, cleanupHostStream, createOfferForViewer, currentUserId, file, isHost, roomCode]);
+
+  useEffect(() => {
+    if (isHost || !fallbackUrl) return;
+
+    const video = fallbackVideoRef.current;
+    if (!video) return;
+
+    const applyPosition = (positionSec: number, playing: boolean, atServerTs?: number) => {
+      const latencySec = playing && atServerTs ? Math.max(0, (Date.now() - atServerTs) / 1000) : 0;
+      const target = Math.max(0, positionSec + latencySec);
+      if (Math.abs((video.currentTime || 0) - target) > 0.5) video.currentTime = target;
+      if (playing) video.play().catch(() => null);
+      else video.pause();
+    };
+
+    const onPlay = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => applyPosition(positionSec || 0, true, atServerTs);
+    const onPause = ({ positionSec }: { positionSec: number }) => applyPosition(positionSec || 0, false);
+    const onSeek = ({ positionSec }: { positionSec: number }) => applyPosition(positionSec || 0, !video.paused);
+    const onHeartbeat = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
+      if (!video.paused) applyPosition(positionSec || 0, true, atServerTs);
+    };
+    const onPlayerState = ({ positionSec, isPlaying, serverTs }: { positionSec: number; isPlaying: boolean; serverTs?: number }) => {
+      applyPosition(positionSec || 0, !!isPlaying, serverTs);
+    };
+
+    socket.on('player:play', onPlay);
+    socket.on('player:pause', onPause);
+    socket.on('player:seek', onSeek);
+    socket.on('player:heartbeat', onHeartbeat);
+    socket.on('player:state', onPlayerState);
+    socket.emit('player:state', { roomCode });
+
+    return () => {
+      socket.off('player:play', onPlay);
+      socket.off('player:pause', onPause);
+      socket.off('player:seek', onSeek);
+      socket.off('player:heartbeat', onHeartbeat);
+      socket.off('player:state', onPlayerState);
+    };
+  }, [fallbackUrl, isHost, roomCode]);
 
   useEffect(() => {
     if (!isHost) return;
@@ -375,6 +441,34 @@ export default function LocalStreamPlayer({
         onClick={playViewerVideo}
       />
       <audio ref={viewerAudioRef} autoPlay />
+      <div className="card glass" style={{ display: 'grid', gap: 10 }}>
+        <h3 style={{ margin: 0 }}>Mobile fallback</h3>
+        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+          If the host stream keeps buffering, select the same file on this device. It will sync to the host timeline.
+        </p>
+        <input
+          id="local-stream-fallback-input"
+          type="file"
+          accept="video/*,.mp4,.webm,.mov,.m4v"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            const selected = event.target.files?.[0];
+            if (!selected) return;
+            if (fallbackUrl) URL.revokeObjectURL(fallbackUrl);
+            setFallbackUrl(URL.createObjectURL(selected));
+            setFallbackFileName(selected.name);
+          }}
+        />
+        <button className="button button-secondary" onClick={() => document.getElementById('local-stream-fallback-input')?.click()}>
+          Select same file locally
+        </button>
+        {fallbackUrl && (
+          <>
+            <div style={{ color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>{fallbackFileName}</div>
+            <video ref={fallbackVideoRef} className="local-video-frame" src={fallbackUrl} controls playsInline />
+          </>
+        )}
+      </div>
       <div className="player-toolbar">
         <button className="button button-secondary" onClick={playViewerVideo}>
           {needsPlayClick ? 'Play stream' : 'Start audio/video'}

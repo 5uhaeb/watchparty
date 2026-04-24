@@ -504,7 +504,8 @@ textarea {
   }
 
   .container {
-    max-width: 860px;
+    max-width: 920px;
+    padding: 28px 18px;
   }
 
   .room-header {
@@ -514,6 +515,28 @@ textarea {
   .room-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .player-frame,
+  .local-video-frame {
+    max-height: 62vh;
+    object-fit: contain;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1180px) {
+  .row {
+    gap: 18px;
+  }
+
+  .button,
+  button:not([class]) {
+    white-space: normal;
+  }
+
+  .video-call-actions .button,
+  .player-toolbar .button {
+    flex: 1 1 150px;
   }
 }
 
@@ -595,6 +618,21 @@ textarea {
   .ott-panel input {
     flex: 1 1 100%;
     width: 100%;
+  }
+
+  .player-frame,
+  .local-video-frame {
+    border-radius: var(--r-md);
+    max-height: 52vh;
+  }
+
+  .room-title-block {
+    width: 100%;
+  }
+
+  .source-label {
+    width: 100%;
+    justify-content: center;
   }
 
   .video-call-grid {

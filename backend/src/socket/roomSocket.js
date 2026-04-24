@@ -583,16 +583,30 @@ function registerRoomSocket(io, socket) {
     }
 
     socket.emit('call:members', { members });
-    socket.to(roomCode).emit('call:user-joined', { userId, name: socket.callName });
+    socket.to(roomCode).emit('call:user-joined', { socketId: socket.id, userId, name: socket.callName });
   });
 
   socket.on('call:signal', ({ to, from, signal }) => {
-    const socketsMap = io.sockets.sockets;
+    const target = io.sockets.sockets.get(to);
+    if (target && target.roomCode === socket.roomCode) {
+      target.emit('call:signal', {
+        fromSocketId: socket.id,
+        fromUserId: from || socket.callUserId,
+        fromName: socket.callName,
+        signal
+      });
+      return;
+    }
 
-    for (const [, s] of socketsMap) {
-      if (s.callUserId === to && s.roomCode === socket.roomCode) {
-        s.emit('call:signal', { from, signal });
-        break;
+    for (const [, roomSocket] of io.sockets.sockets) {
+      if (roomSocket.callUserId === to && roomSocket.roomCode === socket.roomCode) {
+        roomSocket.emit('call:signal', {
+          fromSocketId: socket.id,
+          fromUserId: from || socket.callUserId,
+          fromName: socket.callName,
+          signal
+        });
+        return;
       }
     }
   });

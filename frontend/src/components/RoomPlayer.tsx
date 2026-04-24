@@ -257,6 +257,7 @@ export default function RoomPlayer({
       <LocalStreamPlayer
         roomCode={roomCode}
         isHost={isHost}
+        currentUserId={currentUserId}
         file={isHost ? localStreamFile : null}
         sourceData={sourceData}
         onStopped={onLocalStreamStopped}
