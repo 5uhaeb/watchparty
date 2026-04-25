@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 import { ICE_SERVERS } from '@/lib/iceServers';
+import { WatchPartyAudioMixer, findWatchMediaElement } from '@/lib/audioMixer';
 
 interface PeerState {
   socketId: string;
@@ -16,17 +17,12 @@ interface PeerState {
 const MAX_CALL_USERS = 10;
 
 const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
-  video: {
-    width: { ideal: 640, max: 960 },
-    height: { ideal: 360, max: 540 },
-    frameRate: { ideal: 15, max: 20 },
-  },
   audio: {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
-    channelCount: 1,
   },
+  video: true,
 };
 
 export default function VideoCallPanel({
@@ -42,13 +38,21 @@ export default function VideoCallPanel({
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [callError, setCallError] = useState('');
+  const [audioSupportWarning, setAudioSupportWarning] = useState('');
   const [localBadges, setLocalBadges] = useState<string[]>([]);
+  const [micVolume, setMicVolume] = useState(1);
+  const [mediaVolume, setMediaVolume] = useState(1);
+  const [participantsVolume, setParticipantsVolume] = useState(1);
+  const [voicePriority, setVoicePriority] = useState(false);
+  const [advancedAudio, setAdvancedAudio] = useState(false);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
+  const mixerRef = useRef<WatchPartyAudioMixer | null>(null);
+  const speakingEmitRef = useRef({ speaking: false, lastEmitAt: 0 });
 
   useEffect(() => {
     peersStateRef.current = peers;
@@ -91,6 +95,32 @@ export default function VideoCallPanel({
     }, 3800);
   };
 
+  const addOrReplaceMixedAudioTrack = async (pc: RTCPeerConnection) => {
+    const mixedStream = mixerRef.current?.getMixedStream();
+    const mixedAudioTrack = mixedStream?.getAudioTracks()[0];
+    if (!mixedStream || !mixedAudioTrack) return;
+
+    const audioSender = pc.getSenders().find((sender) => sender.track?.kind === 'audio');
+    if (audioSender) {
+      await audioSender.replaceTrack(mixedAudioTrack);
+      return;
+    }
+
+    // Send one mixed WebRTC audio track instead of the raw microphone track.
+    pc.addTrack(mixedAudioTrack, mixedStream);
+  };
+
+  const addLocalTracksToPeerConnection = (pc: RTCPeerConnection) => {
+    const localStream = localStreamRef.current;
+    if (!localStream) return;
+
+    localStream.getVideoTracks().forEach((cameraVideoTrack) => {
+      pc.addTrack(cameraVideoTrack, localStream);
+    });
+
+    addOrReplaceMixedAudioTrack(pc).catch(() => null);
+  };
+
   const createPC = (remoteSocketId: string, remoteUserId: string, remoteName: string, initiator: boolean) => {
     const existing = pcsRef.current.get(remoteSocketId);
     if (existing) return existing;
@@ -99,9 +129,7 @@ export default function VideoCallPanel({
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     pcsRef.current.set(remoteSocketId, pc);
 
-    localStreamRef.current?.getTracks().forEach((track) => {
-      pc.addTrack(track, localStreamRef.current!);
-    });
+    addLocalTracksToPeerConnection(pc);
 
     const remoteStream = new MediaStream();
     pc.ontrack = (event) => {
@@ -159,6 +187,7 @@ export default function VideoCallPanel({
 
   const unlockAudio = async () => {
     setAudioUnlocked(true);
+    await mixerRef.current?.resume();
     const mediaElements = Array.from(document.querySelectorAll<HTMLMediaElement>('[data-call-media]'));
     await Promise.allSettled(mediaElements.map((element) => element.play()));
   };
@@ -166,7 +195,42 @@ export default function VideoCallPanel({
   const joinCall = async () => {
     try {
       setCallError('');
-      const stream = await navigator.mediaDevices.getUserMedia(CALL_MEDIA_CONSTRAINTS);
+      setAudioSupportWarning('');
+      const localCameraStream = await navigator.mediaDevices.getUserMedia({
+        ...CALL_MEDIA_CONSTRAINTS,
+        audio: {
+          echoCancellation: !advancedAudio,
+          noiseSuppression: !advancedAudio,
+          autoGainControl: !advancedAudio,
+        },
+      });
+
+      const mixer = new WatchPartyAudioMixer({
+        microphoneStream: localCameraStream,
+        mediaElement: findWatchMediaElement(),
+        micVolume,
+        mediaVolume,
+        voicePriority,
+        advancedMicProcessing: advancedAudio,
+        onWarning: setAudioSupportWarning,
+        onSpeakingChange: (speaking) => {
+          const now = Date.now();
+          if (speaking) flashLocalBadge('Speaking');
+          if (speaking !== speakingEmitRef.current.speaking || (speaking && now - speakingEmitRef.current.lastEmitAt > 1200)) {
+            socket.emit('call:speaking', { roomCode, speaking });
+            speakingEmitRef.current = { speaking, lastEmitAt: now };
+          }
+        },
+      });
+      await mixer.start();
+      mixerRef.current = mixer;
+      mixer.setAdvancedMicProcessing(advancedAudio);
+
+      const mixedStream = mixer.getMixedStream();
+      const stream = new MediaStream([
+        ...localCameraStream.getVideoTracks(),
+        ...mixedStream.getAudioTracks(),
+      ]);
       localStreamRef.current = stream;
       setIsInCall(true);
       setAudioUnlocked(true);
@@ -176,6 +240,8 @@ export default function VideoCallPanel({
         name: currentUser.name
       });
     } catch {
+      mixerRef.current?.stop();
+      mixerRef.current = null;
       setCallError('Could not access camera/microphone. Check browser permissions.');
     }
   };
@@ -188,6 +254,8 @@ export default function VideoCallPanel({
 
   const leaveCall = () => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mixerRef.current?.stop();
+    mixerRef.current = null;
     pcsRef.current.forEach((pc) => pc.close());
     pcsRef.current.clear();
     localStreamRef.current = null;
@@ -199,9 +267,7 @@ export default function VideoCallPanel({
 
   const toggleMic = () => {
     const next = !isMicOn;
-    localStreamRef.current?.getAudioTracks().forEach((track) => {
-      track.enabled = next;
-    });
+    mixerRef.current?.setMicEnabled(next);
     setIsMicOn(next);
     flashLocalBadge(next ? 'Mic on' : 'Muted');
     socket.emit('call:media-state', { roomCode, state: { micOn: next, camOn: isCamOn } });
@@ -218,35 +284,25 @@ export default function VideoCallPanel({
   };
 
   useEffect(() => {
-    if (!isInCall || !localStreamRef.current) return;
-    const audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(localStreamRef.current);
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    const samples = new Uint8Array(analyser.frequencyBinCount);
-    let lastSpeaking = false;
-    let lastEmitAt = 0;
+    mixerRef.current?.setMicVolume(micVolume);
+  }, [micVolume]);
 
-    const intervalId = window.setInterval(() => {
-      if (!isMicOn) return;
-      analyser.getByteFrequencyData(samples);
-      const average = samples.reduce((sum, value) => sum + value, 0) / samples.length;
-      const speaking = average > 12;
-      const now = Date.now();
-      if (speaking) flashLocalBadge('Speaking');
-      if (speaking !== lastSpeaking || (speaking && now - lastEmitAt > 1200)) {
-        socket.emit('call:speaking', { roomCode, speaking });
-        lastSpeaking = speaking;
-        lastEmitAt = now;
-      }
-    }, 300);
+  useEffect(() => {
+    mixerRef.current?.setMediaVolume(mediaVolume);
+  }, [mediaVolume]);
 
-    return () => {
-      window.clearInterval(intervalId);
-      audioContext.close().catch(() => null);
-    };
-  }, [isInCall, isMicOn, roomCode]);
+  useEffect(() => {
+    mixerRef.current?.setVoicePriority(voicePriority);
+  }, [voicePriority]);
+
+  useEffect(() => {
+    if (!isInCall) return;
+    const attachCurrentMedia = () => mixerRef.current?.attachMediaElement(findWatchMediaElement());
+    attachCurrentMedia();
+    pcsRef.current.forEach((pc) => addOrReplaceMixedAudioTrack(pc).catch(() => null));
+    const intervalId = window.setInterval(attachCurrentMedia, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [isInCall]);
 
   useEffect(() => {
     if (!isInCall) return;
@@ -370,8 +426,16 @@ export default function VideoCallPanel({
         <div className="label-tag" style={{ marginBottom: '8px' }}>Call</div>
         <h3 style={{ margin: '0 0 6px' }}>Video Call</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
-          Up to {MAX_CALL_USERS} people. Call audio is separated from the watch player.
+          Call and watch audio are blended locally for a smoother watch party experience. Headphones are recommended.
         </p>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: 12 }}>
+          <input
+            type="checkbox"
+            checked={advancedAudio}
+            onChange={(event) => setAdvancedAudio(event.target.checked)}
+          />
+          Advanced audio mode (turn off echo cleanup)
+        </label>
         <button className="button" onClick={joinCall} style={{ width: '100%' }}>
           Join Call
         </button>
@@ -424,8 +488,28 @@ export default function VideoCallPanel({
         </div>
 
         {peers.map((peer) => (
-          <PeerVideo key={peer.socketId} peer={peer} audioUnlocked={audioUnlocked} />
+          <PeerVideo key={peer.socketId} peer={peer} audioUnlocked={audioUnlocked} volume={participantsVolume} />
         ))}
+      </div>
+
+      {audioSupportWarning && (
+        <div style={{ marginBottom: 12, color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
+          {audioSupportWarning}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+        <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
+        <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
+        <VolumeSlider label="Participants volume" value={participantsVolume} onChange={setParticipantsVolume} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+          <input
+            type="checkbox"
+            checked={voicePriority}
+            onChange={(event) => setVoicePriority(event.target.checked)}
+          />
+          Voice priority lowers movie audio slightly while you speak.
+        </label>
       </div>
 
       <div className="video-call-actions">
@@ -503,7 +587,32 @@ function StatusBadges({ badges }: { badges: string[] }) {
   );
 }
 
-function PeerVideo({ peer, audioUnlocked }: { peer: PeerState; audioUnlocked: boolean }) {
+function VolumeSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label style={{ display: 'grid', gridTemplateColumns: '120px 1fr 42px', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+      <span>{label}</span>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <span style={{ textAlign: 'right' }}>{Math.round(value * 100)}%</span>
+    </label>
+  );
+}
+
+function PeerVideo({ peer, audioUnlocked, volume }: { peer: PeerState; audioUnlocked: boolean; volume: number }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -516,9 +625,10 @@ function PeerVideo({ peer, audioUnlocked }: { peer: PeerState; audioUnlocked: bo
     }
     if (audioRef.current) {
       audioRef.current.srcObject = peer.stream;
+      audioRef.current.volume = volume;
       if (audioUnlocked) audioRef.current.play().catch(() => null);
     }
-  }, [audioUnlocked, peer.stream]);
+  }, [audioUnlocked, peer.stream, volume]);
 
   return (
     <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>

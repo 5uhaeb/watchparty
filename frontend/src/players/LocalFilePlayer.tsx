@@ -97,6 +97,7 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <video
         ref={videoRef}
+        data-watch-media
         src={src}
         controls={controls}
         playsInline

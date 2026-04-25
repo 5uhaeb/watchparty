@@ -447,7 +447,7 @@ export default function LocalStreamPlayer({
           </button>
           <span className="label-tag">{viewerCount} viewer{viewerCount === 1 ? '' : 's'}</span>
         </div>
-        <video ref={hostVideoRef} className="local-video-frame" controls playsInline preload="metadata" />
+        <video ref={hostVideoRef} data-watch-media className="local-video-frame" controls playsInline preload="metadata" />
         <div className="card glass">
           <h3 style={{ margin: '0 0 8px' }}>Streaming local file</h3>
           <p style={{ color: 'var(--text-secondary)', margin: 0, overflowWrap: 'anywhere' }}>
@@ -475,6 +475,7 @@ export default function LocalStreamPlayer({
       </div>
       <video
         ref={viewerVideoRef}
+        data-watch-media
         className="local-video-frame"
         autoPlay
         controls
@@ -513,7 +514,7 @@ export default function LocalStreamPlayer({
         {fallbackUrl && (
           <>
             <div style={{ color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>{fallbackFileName}</div>
-            <video ref={fallbackVideoRef} className="local-video-frame" src={fallbackUrl} controls playsInline />
+            <video ref={fallbackVideoRef} data-watch-media className="local-video-frame" src={fallbackUrl} controls playsInline />
           </>
         )}
       </div>

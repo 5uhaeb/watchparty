@@ -347,6 +347,76 @@ textarea {
   font-size: 0.85rem;
 }
 
+.call-layout-toggle {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.call-layout-toggle .button {
+  min-height: 34px;
+  padding: 7px 10px;
+  box-shadow: none;
+  border-width: var(--outline-thin);
+}
+
+.call-layout-toggle .button:hover {
+  box-shadow: var(--shadow-xs);
+}
+
+.container:has(.room-page) {
+  max-width: 1540px;
+}
+
+.room-watch-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.room-watch-layout.has-call.call-layout-side {
+  grid-template-columns: minmax(640px, 1fr) minmax(340px, 390px);
+}
+
+.room-watch-layout.call-layout-overlay {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.watch-column,
+.watch-stage {
+  min-width: 0;
+}
+
+.watch-stage {
+  position: relative;
+}
+
+.watch-stage .player-shell,
+.watch-stage .player-frame,
+.watch-stage .local-video-frame {
+  width: 100%;
+}
+
+.call-overlay-panel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: clamp(310px, 28vw, 420px);
+  max-height: min(72vh, calc(100% - 32px));
+  overflow: auto;
+  z-index: 12;
+}
+
+.call-overlay-panel > .card {
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28), var(--shadow-md);
+}
+
+.call-overlay-panel .video-call-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
 .source-label {
   display: inline-flex;
   align-items: center;
@@ -503,6 +573,12 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .room-watch-layout,
+  .room-watch-layout.has-call.call-layout-side,
+  .room-watch-layout.call-layout-overlay {
+    grid-template-columns: 1fr;
+  }
+
   .container {
     max-width: 920px;
     padding: 28px 18px;
@@ -596,6 +672,15 @@ textarea {
     width: 100% !important;
   }
 
+  .call-layout-toggle {
+    width: 100%;
+  }
+
+  .call-layout-toggle .button {
+    flex: 1 1 0;
+    width: auto !important;
+  }
+
   .chat-form,
   .form-row,
   .tabs-row,
@@ -636,6 +721,17 @@ textarea {
   }
 
   .video-call-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .call-overlay-panel {
+    position: static;
+    width: 100%;
+    max-height: none;
+    margin-top: 12px;
+  }
+
+  .call-overlay-panel .video-call-grid {
     grid-template-columns: 1fr !important;
   }
 

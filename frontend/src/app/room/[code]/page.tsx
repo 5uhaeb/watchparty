@@ -15,6 +15,7 @@ import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
 type SourceTab = 'youtube' | 'localStream';
+type CallLayout = 'side' | 'overlay';
 
 export default function RoomPage() {
   const params = useParams();
@@ -27,6 +28,7 @@ export default function RoomPage() {
   const [presenceMembers, setPresenceMembers] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
+  const [callLayout, setCallLayout] = useState<CallLayout>('side');
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [sourceTab, setSourceTab] = useState<SourceTab>('youtube');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
@@ -477,6 +479,22 @@ export default function RoomPage() {
           >
             {showCall ? 'Hide call' : 'Video call'}
           </button>
+          {showCall && (
+            <div className="call-layout-toggle" role="group" aria-label="Video call layout">
+              <button
+                className={`button ${callLayout === 'side' ? '' : 'button-secondary'}`}
+                onClick={() => setCallLayout('side')}
+              >
+                Big stream
+              </button>
+              <button
+                className={`button ${callLayout === 'overlay' ? '' : 'button-secondary'}`}
+                onClick={() => setCallLayout('overlay')}
+              >
+                Overlay call
+              </button>
+            </div>
+          )}
           <span className="source-label">
             Source: {(activeSourceType || 'no source').replace(/([a-z])([A-Z])/g, '$1 $2')}
           </span>
@@ -522,9 +540,9 @@ export default function RoomPage() {
         </div>
       )}
 
-      <div className="row">
+      <div className={`row room-watch-layout ${showCall ? 'has-call' : ''} call-layout-${callLayout}`}>
         <div
-          className="content-column"
+          className="content-column watch-column"
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -536,47 +554,58 @@ export default function RoomPage() {
             if (file) handleFileDropped(file);
           }}
         >
-          {activeSourceType ? (
-            <RoomPlayer
-              roomCode={code}
-              videoUrl={activeSourceUrl}
-              sourceType={activeSourceType}
-              sourceData={activeSourceData}
-              localStreamFile={localStreamFile}
-              isHost={playerCanControl}
-              currentUserId={guestId}
-              onLocalStreamStopped={() => {
-                setLocalStreamFile(null);
-                setStreamNotice('Host ended the stream.');
-              }}
-            />
-          ) : (
-            <div className="card glass" style={{ minHeight: 360, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 32 }}>
-              <div style={{ maxWidth: 460 }}>
-                <div className="label-tag" style={{ marginBottom: 12 }}>Empty room</div>
-                <h2 style={{ margin: '0 0 10px' }}>Nothing is playing yet</h2>
-                {canChangeSource ? (
-                  <>
-                    <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)' }}>
-                      Pick something to start the watch party.
+          <div className="watch-stage">
+            {activeSourceType ? (
+              <RoomPlayer
+                roomCode={code}
+                videoUrl={activeSourceUrl}
+                sourceType={activeSourceType}
+                sourceData={activeSourceData}
+                localStreamFile={localStreamFile}
+                isHost={playerCanControl}
+                currentUserId={guestId}
+                onLocalStreamStopped={() => {
+                  setLocalStreamFile(null);
+                  setStreamNotice('Host ended the stream.');
+                }}
+              />
+            ) : (
+              <div className="card glass" style={{ minHeight: 360, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 32 }}>
+                <div style={{ maxWidth: 460 }}>
+                  <div className="label-tag" style={{ marginBottom: 12 }}>Empty room</div>
+                  <h2 style={{ margin: '0 0 10px' }}>Nothing is playing yet</h2>
+                  {canChangeSource ? (
+                    <>
+                      <p style={{ margin: '0 0 20px', color: 'var(--text-secondary)' }}>
+                        Pick something to start the watch party.
+                      </p>
+                      <div className="player-toolbar" style={{ justifyContent: 'center' }}>
+                        <button className="button" onClick={() => openSourcePicker('youtube')}>
+                          Paste YouTube URL
+                        </button>
+                        <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
+                          Play local file
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                      Waiting for the host to pick something...
                     </p>
-                    <div className="player-toolbar" style={{ justifyContent: 'center' }}>
-                      <button className="button" onClick={() => openSourcePicker('youtube')}>
-                        Paste YouTube URL
-                      </button>
-                      <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
-                        Play local file
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-                    Waiting for the host to pick something...
-                  </p>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {showCall && callLayout === 'overlay' && (
+              <div className="call-overlay-panel">
+                <VideoCallPanel
+                  roomCode={code}
+                  currentUser={{ id: guestId || userName, name: userName }}
+                />
+              </div>
+            )}
+          </div>
 
           {source && (
             <div className="card glass">
@@ -602,8 +631,8 @@ export default function RoomPage() {
           )}
         </div>
 
-        <div className="content-column">
-          {showCall && (
+        <div className="content-column room-side-column">
+          {showCall && callLayout === 'side' && (
             <VideoCallPanel
               roomCode={code}
               currentUser={{ id: guestId || userName, name: userName }}
