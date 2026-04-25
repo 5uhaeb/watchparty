@@ -65,7 +65,7 @@ async function openTokenPage() {
     setStatus('Enter the web app URL first.');
     return;
   }
-  chrome.tabs.create({ url: `${webAppUrl.replace(/\/$/, '')}/api/extension/token` });
+  chrome.tabs.create({ url: `${webAppUrl.replace(/\/$/, '')}/extension-token` });
 }
 
 async function openRoom() {

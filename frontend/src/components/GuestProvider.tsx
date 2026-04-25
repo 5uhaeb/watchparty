@@ -2,6 +2,7 @@
 
 import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { clearGuestToken, guestAuthHeaders, setGuestToken } from '@/lib/guestToken';
+import { API_URL } from '@/lib/env';
 import { socket } from '@/lib/socket';
 
 export type Guest = {
@@ -20,12 +21,10 @@ type GuestContextValue = {
 
 const GuestContext = createContext<GuestContextValue | null>(null);
 
-const API = process.env.NEXT_PUBLIC_API_URL;
-
 type GuestResponse = Guest & { token?: string };
 
 async function guestFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: guestAuthHeaders({

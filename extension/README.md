@@ -32,6 +32,7 @@ Set these environment variables on the deployed backend and frontend:
 The web app exposes:
 
 - `GET /api/extension/token`: forwards the anonymous guest cookie to the backend and returns `{ token, expiresAt }`.
+- `GET /extension-token`: human-friendly page with a copy button for extension tokens.
 
 The backend exposes:
 
@@ -49,7 +50,7 @@ The backend exposes:
    - Backend Socket.IO URL, for example `https://your-backend.onrender.com`.
    - Web App URL, for example `https://your-app.vercel.app`.
    - Room code.
-8. Click "Get Token"; copy the returned `token` value.
+8. Click "Get Token"; copy the token from the page that opens.
 9. Paste the token into the popup and click "Connect".
 10. In the room, choose **Change Source** -> **OTT / Hotstar** and select the provider. Host-only control is the default; admins can allow everyone to control playback from room permissions.
 11. Open the same Netflix, Prime Video, or Hotstar/JioHotstar title or IPL match in each browser profile and use playback normally. The controller sends play, pause, seek, and heartbeat events; followers apply those events to their own logged-in tab.

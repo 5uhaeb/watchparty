@@ -1,9 +1,8 @@
 import { guestAuthHeaders } from './guestToken';
-
-const API = process.env.NEXT_PUBLIC_API_URL;
+import { API_URL } from './env';
 
 export async function createRoom(payload: { title?: string } = {}) {
-  const res = await fetch(`${API}/rooms`, {
+  const res = await fetch(`${API_URL}/rooms`, {
     method: 'POST',
     headers: guestAuthHeaders({ 'Content-Type': 'application/json' }),
     credentials: 'include',
@@ -17,7 +16,7 @@ export async function createRoom(payload: { title?: string } = {}) {
 }
 
 export async function getRoom(code: string) {
-  const res = await fetch(`${API}/rooms/${code.toUpperCase()}`, { cache: 'no-store' });
+  const res = await fetch(`${API_URL}/rooms/${code.toUpperCase()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Room not found');
   return res.json();
 }
@@ -31,7 +30,7 @@ export async function getRoomMessages(
   if (options.before) params.set('before', options.before);
 
   const res = await fetch(
-    `${API}/rooms/${encodeURIComponent(roomIdOrCode)}/messages?${params.toString()}`,
+    `${API_URL}/rooms/${encodeURIComponent(roomIdOrCode)}/messages?${params.toString()}`,
     { cache: 'no-store' }
   );
   if (!res.ok) throw new Error('Failed to load messages');

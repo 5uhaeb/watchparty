@@ -1,7 +1,8 @@
 import { io } from 'socket.io-client';
 import { getGuestToken, setGuestToken } from './guestToken';
+import { API_URL, SOCKET_URL } from './env';
 
-export const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
+export const socket = io(SOCKET_URL, {
   autoConnect: false,
   transports: ['websocket'],
   withCredentials: true,
@@ -24,7 +25,7 @@ socket.connect = () => {
 socket.on('connect_error', async (error) => {
   if (!/jwt|auth/i.test(error.message)) return;
 
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/guest/bootstrap`, {
+  const res = await fetch(`${API_URL}/guest/bootstrap`, {
     method: 'POST',
     credentials: 'include',
     headers: {
