@@ -7,6 +7,7 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const registerRoomSocket = require('./socket/roomSocket');
 const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
+const { verifyExtensionToken } = require('./lib/extensionToken');
 const { createAdapterClients, usingMockRedis } = require('./lib/redis');
 
 connectDB();
@@ -64,7 +65,15 @@ io.use(async (socket, next) => {
     if (!consumeHandshake(ip)) return next(new Error('Rate limited'));
 
     const result = await getGuestFromToken(getGuestToken(socket.request, socket.handshake.auth?.token));
-    if (!result?.guest) return next(new Error('JWT auth required'));
+    if (!result?.guest) {
+      const extensionClaims = verifyExtensionToken(socket.handshake.auth?.extensionToken);
+      if (!extensionClaims) return next(new Error('JWT auth required'));
+
+      socket.data.guestId = extensionClaims.sub;
+      socket.data.displayName = extensionClaims.name || extensionClaims.sub;
+      socket.data.isExtension = true;
+      return next();
+    }
 
     const guest = serializeGuest(result.guest);
     socket.data.guestId = guest.guestId;

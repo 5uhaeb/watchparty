@@ -7,6 +7,7 @@ const WATCH_URLS = [
   'https://*.primevideo.com/*',
   'https://www.amazon.com/gp/video/*',
   'https://www.hotstar.com/*',
+  'https://hotstar.com/*',
   'https://*.hotstar.com/*',
   'https://jiohotstar.com/*',
   'https://*.jiohotstar.com/*',
@@ -109,6 +110,7 @@ async function connect() {
 
   socket = io(backendUrl, {
     transports: ['websocket'],
+    auth: { extensionToken: token },
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
@@ -120,13 +122,14 @@ async function connect() {
     socket.emit('extension:join', { roomCode, token });
   });
 
-  socket.on('connect_error', () => {
+  socket.on('connect_error', (error) => {
+    const authFailed = /jwt|auth|token/i.test(error?.message || '');
     setStatus({
       connected: false,
       connecting: false,
       canControlPlayback: false,
-      error: 'Backend unreachable.',
-      message: 'Backend unreachable. Check the Socket.IO URL.',
+      error: authFailed ? 'Invalid or expired token. Refresh the token from the web app.' : 'Backend unreachable.',
+      message: authFailed ? 'Invalid or expired token. Refresh the token from the web app.' : 'Backend unreachable. Check the Socket.IO URL.',
     });
   });
 
