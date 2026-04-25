@@ -14,7 +14,7 @@ import FileError from '@/components/FileError';
 import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
-type SourceTab = 'youtube' | 'localStream';
+type SourceTab = 'youtube' | 'localStream' | 'ott-sync';
 type CallLayout = 'side' | 'overlay';
 
 export default function RoomPage() {
@@ -224,6 +224,13 @@ export default function RoomPage() {
       return;
     }
 
+    if (sourceTab === 'ott-sync') {
+      socket.emit('room:setSource', { type: 'ott-sync', provider: 'hotstar' });
+      setLocalStreamFile(null);
+      setShowSourceModal(false);
+      return;
+    }
+
     const url = sourceUrlDraft.trim();
     if (!url) {
       setSourceMessage('Paste a YouTube URL.');
@@ -313,6 +320,12 @@ export default function RoomPage() {
         >
           Local file
         </button>
+        <button
+          className={`button ${sourceTab === 'ott-sync' ? '' : 'button-secondary'}`}
+          onClick={() => setSourceTab('ott-sync')}
+        >
+          OTT / Hotstar
+        </button>
       </div>
 
       {sourceTab === 'localStream' ? (
@@ -360,6 +373,13 @@ export default function RoomPage() {
             </div>
           )}
         </label>
+      ) : sourceTab === 'ott-sync' ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>OTT sync mode</span>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+            Use this for Hotstar/JioHotstar IPL, Netflix, or Prime. Each person opens the same match or title in their own subscribed OTT tab, then the extension syncs play, pause, seek, and drift.
+          </p>
+        </div>
       ) : (
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>YouTube URL</span>
@@ -378,7 +398,7 @@ export default function RoomPage() {
         onClick={submitSource}
         disabled={sourceTab === 'localStream' && (fileProbing || !localStreamFileDraft || !fileProbeResult?.success)}
       >
-        {sourceTab === 'localStream' ? 'Start streaming' : 'Play YouTube'}
+        {sourceTab === 'localStream' ? 'Start streaming' : sourceTab === 'ott-sync' ? 'Start OTT sync' : 'Play YouTube'}
       </button>
       {source && (
         <button className="button button-secondary" onClick={clearSource}>
@@ -586,6 +606,9 @@ export default function RoomPage() {
                         <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
                           Play local file
                         </button>
+                        <button className="button button-secondary" onClick={() => openSourcePicker('ott-sync')}>
+                          Sync OTT
+                        </button>
                       </div>
                     </>
                   ) : (
@@ -614,6 +637,8 @@ export default function RoomPage() {
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
                 {source.type === 'localStream'
                   ? `${source.fileName || 'Local stream'} (${formatFileSize(source.sizeBytes)}, ${formatDuration(source.durationSec)})`
+                  : source.type === 'ott-sync'
+                    ? `${source.provider === 'hotstar' ? 'Hotstar/JioHotstar' : source.provider || 'OTT'} sync mode`
                   : source.url}
               </p>
               {streamNotice && (
@@ -625,6 +650,8 @@ export default function RoomPage() {
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   {source.type === 'localStream'
                     ? 'The stream is controlled by the host.'
+                    : source.type === 'ott-sync'
+                      ? 'Everyone needs their own OTT subscription and must open the same title in a supported browser tab.'
                     : 'The host controls playback. Heartbeats keep this player in sync.'}
                 </p>
               )}

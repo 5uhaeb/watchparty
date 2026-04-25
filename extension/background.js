@@ -5,6 +5,10 @@ const WATCH_URLS = [
   'https://www.netflix.com/*',
   'https://*.primevideo.com/*',
   'https://www.amazon.com/gp/video/*',
+  'https://www.hotstar.com/*',
+  'https://*.hotstar.com/*',
+  'https://jiohotstar.com/*',
+  'https://*.jiohotstar.com/*',
 ];
 
 let socket = null;

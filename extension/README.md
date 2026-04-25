@@ -1,6 +1,6 @@
 # WatchParty OTT Sync Extension
 
-Manifest V3 browser extension for syncing playback position across Netflix and Prime Video tabs through the existing WatchParty Socket.IO backend.
+Manifest V3 browser extension for syncing playback position across Netflix, Prime Video, and Hotstar/JioHotstar tabs through the existing WatchParty Socket.IO backend.
 
 ## Scope and Notice
 
@@ -14,6 +14,7 @@ Use this only where it complies with the streaming service terms that apply to y
 - `background.ts` / `background.js`: service worker that owns the Socket.IO connection.
 - `content-netflix.ts` / `content-netflix.js`: Netflix video adapter.
 - `content-prime.ts` / `content-prime.js`: Prime Video video adapter.
+- `content-hotstar.ts` / `content-hotstar.js`: Hotstar/JioHotstar video adapter, including IPL streams opened by each subscriber.
 - `popup.html` / `popup.ts` / `popup.js`: room code, backend URL, web app URL, and token entry.
 - `vendor/socket.io.min.js`: vendored Socket.IO client used by the service worker.
 
@@ -48,7 +49,8 @@ The backend exposes:
    - Room code.
 8. Click "Get Token"; copy the returned `token` value.
 9. Paste the token into the popup and click "Connect".
-10. Open the same Netflix or Prime Video title in both browser profiles and use playback normally.
+10. In the room, choose **Change Source** -> **OTT / Hotstar**.
+11. Open the same Netflix, Prime Video, or Hotstar/JioHotstar title or IPL match in each browser profile and use playback normally.
 
 ## Firefox MV3 Caveats
 
@@ -57,5 +59,5 @@ Firefox MV3 support differs from Chromium, especially around service worker life
 ## Troubleshooting
 
 - If the popup says a token is invalid, generate a new one; tokens are intentionally short-lived.
-- If a tab does not sync after navigating inside Netflix or Prime Video, reload that streaming tab. The content script uses a `MutationObserver` for SPA navigation, but streaming pages can occasionally replace players in unusual ways.
+- If a tab does not sync after navigating inside Netflix, Prime Video, or Hotstar/JioHotstar, reload that streaming tab. The content script uses a `MutationObserver` for SPA navigation, but streaming pages can occasionally replace players in unusual ways.
 - If Socket.IO fails to connect, confirm backend CORS allows `chrome-extension://` origins and that the backend URL points at the Socket.IO server, not the frontend.

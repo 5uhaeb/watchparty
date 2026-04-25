@@ -95,6 +95,15 @@ function normalizeSource(payload, socket) {
     };
   }
 
+  if (payload.type === 'ott-sync') {
+    const provider = typeof payload.provider === 'string' ? payload.provider.trim().toLowerCase() : 'ott';
+    const allowedProviders = new Set(['netflix', 'prime', 'hotstar', 'jiohotstar', 'ott']);
+    return {
+      type: 'ott-sync',
+      provider: allowedProviders.has(provider) ? provider : 'ott',
+    };
+  }
+
   throw new Error('Unsupported source type');
 }
 

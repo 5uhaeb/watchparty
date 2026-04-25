@@ -469,8 +469,8 @@ function OttControls({
     <div className="ott-panel">
       <h3>OTT Sync Mode</h3>
       <p>
-        Open Netflix / Prime / Hotstar in another tab. Everyone can use the
-        sync controls below.
+        Open the same Netflix, Prime, or Hotstar/JioHotstar title in another tab.
+        Everyone needs their own subscription. The extension syncs playback only.
       </p>
 
       <div className="player-toolbar">

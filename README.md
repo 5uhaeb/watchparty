@@ -16,7 +16,7 @@ This starter supports:
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
 - anonymous guest identity with a signed httpOnly cookie
 
-For Netflix, Prime Video, and Hotstar, this project is designed for **sync only**. It does not capture or rebroadcast protected streams. A browser extension is the practical next step for full remote-control sync on those sites.
+For Netflix, Prime Video, and Hotstar/JioHotstar, this project is designed for **sync only**. It does not capture or rebroadcast protected streams. Use the included browser extension so each participant can open the same subscribed title or IPL match in their own OTT tab while WatchParty syncs playback controls.
 
 ## Local file streaming
 
@@ -135,5 +135,5 @@ NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 - host-only controls
 - persistent chat storage
 - YouTube iframe sync adapter
-- browser extension for OTT sync
+- browser extension hardening for more OTT player edge cases
 - optional accounts

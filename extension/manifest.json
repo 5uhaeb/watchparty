@@ -2,12 +2,16 @@
   "manifest_version": 3,
   "name": "WatchParty OTT Sync",
   "version": "0.1.0",
-  "description": "Sync Netflix and Prime Video playback through your WatchParty room. No capture, DRM changes, or rebroadcasting.",
+  "description": "Sync Netflix, Prime Video, and Hotstar/JioHotstar playback through your WatchParty room. No capture, DRM changes, or rebroadcasting.",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://www.netflix.com/*",
     "https://*.primevideo.com/*",
     "https://www.amazon.com/gp/video/*",
+    "https://www.hotstar.com/*",
+    "https://*.hotstar.com/*",
+    "https://jiohotstar.com/*",
+    "https://*.jiohotstar.com/*",
     "http://localhost:*/*",
     "https://*/*"
   ],
@@ -27,6 +31,16 @@
     {
       "matches": ["https://*.primevideo.com/*", "https://www.amazon.com/gp/video/*"],
       "js": ["content-prime.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.hotstar.com/*",
+        "https://*.hotstar.com/*",
+        "https://jiohotstar.com/*",
+        "https://*.jiohotstar.com/*"
+      ],
+      "js": ["content-hotstar.js"],
       "run_at": "document_idle"
     }
   ],
