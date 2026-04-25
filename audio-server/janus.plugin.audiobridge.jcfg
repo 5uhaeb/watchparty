@@ -1,0 +1,11 @@
+general: {
+  enabled = true
+  json = "indented"
+
+  # Rooms are created dynamically by the frontend Janus client from the
+  # WatchParty room code. The client requests Opus at 48 kHz and a high
+  # target bitrate for each room/publisher.
+}
+
+rooms: [
+]

@@ -1,0 +1,7 @@
+services:
+  janus-audio:
+    build: .
+    ports:
+      - "8188:8188"
+      - "20000-20100:20000-20100/udp"
+    restart: unless-stopped

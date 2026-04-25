@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 import { ICE_SERVERS } from '@/lib/iceServers';
-import { WatchPartyAudioMixer, findWatchMediaElement } from '@/lib/audioMixer';
+import RoomAudioControls from '@/components/RoomAudioControls';
 
 interface PeerState {
   socketId: string;
@@ -35,15 +35,14 @@ export default function VideoCallPanel({
   const [isInCall, setIsInCall] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [callError, setCallError] = useState('');
   const [audioSupportWarning, setAudioSupportWarning] = useState('');
   const [localBadges, setLocalBadges] = useState<string[]>([]);
+  const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
   const [micVolume, setMicVolume] = useState(1);
   const [mediaVolume, setMediaVolume] = useState(1);
-  const [participantsVolume, setParticipantsVolume] = useState(1);
-  const [voicePriority, setVoicePriority] = useState(false);
+  const [mixedRoomVolume, setMixedRoomVolume] = useState(1);
   const [advancedAudio, setAdvancedAudio] = useState(false);
 
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -51,8 +50,6 @@ export default function VideoCallPanel({
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
-  const mixerRef = useRef<WatchPartyAudioMixer | null>(null);
-  const speakingEmitRef = useRef({ speaking: false, lastEmitAt: 0 });
 
   useEffect(() => {
     peersStateRef.current = peers;
@@ -95,21 +92,6 @@ export default function VideoCallPanel({
     }, 3800);
   };
 
-  const addOrReplaceMixedAudioTrack = async (pc: RTCPeerConnection) => {
-    const mixedStream = mixerRef.current?.getMixedStream();
-    const mixedAudioTrack = mixedStream?.getAudioTracks()[0];
-    if (!mixedStream || !mixedAudioTrack) return;
-
-    const audioSender = pc.getSenders().find((sender) => sender.track?.kind === 'audio');
-    if (audioSender) {
-      await audioSender.replaceTrack(mixedAudioTrack);
-      return;
-    }
-
-    // Send one mixed WebRTC audio track instead of the raw microphone track.
-    pc.addTrack(mixedAudioTrack, mixedStream);
-  };
-
   const addLocalTracksToPeerConnection = (pc: RTCPeerConnection) => {
     const localStream = localStreamRef.current;
     if (!localStream) return;
@@ -117,8 +99,6 @@ export default function VideoCallPanel({
     localStream.getVideoTracks().forEach((cameraVideoTrack) => {
       pc.addTrack(cameraVideoTrack, localStream);
     });
-
-    addOrReplaceMixedAudioTrack(pc).catch(() => null);
   };
 
   const createPC = (remoteSocketId: string, remoteUserId: string, remoteName: string, initiator: boolean) => {
@@ -162,7 +142,7 @@ export default function VideoCallPanel({
     };
 
     if (initiator) {
-      pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+      pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: true })
         .then((offer) => pc.setLocalDescription(offer))
         .then(() => {
           socket.emit('call:signal', {
@@ -186,8 +166,6 @@ export default function VideoCallPanel({
   };
 
   const unlockAudio = async () => {
-    setAudioUnlocked(true);
-    await mixerRef.current?.resume();
     const mediaElements = Array.from(document.querySelectorAll<HTMLMediaElement>('[data-call-media]'));
     await Promise.allSettled(mediaElements.map((element) => element.play()));
   };
@@ -205,43 +183,18 @@ export default function VideoCallPanel({
         },
       });
 
-      const mixer = new WatchPartyAudioMixer({
-        microphoneStream: localCameraStream,
-        mediaElement: findWatchMediaElement(),
-        micVolume,
-        mediaVolume,
-        voicePriority,
-        advancedMicProcessing: advancedAudio,
-        onWarning: setAudioSupportWarning,
-        onSpeakingChange: (speaking) => {
-          const now = Date.now();
-          if (speaking) flashLocalBadge('Speaking');
-          if (speaking !== speakingEmitRef.current.speaking || (speaking && now - speakingEmitRef.current.lastEmitAt > 1200)) {
-            socket.emit('call:speaking', { roomCode, speaking });
-            speakingEmitRef.current = { speaking, lastEmitAt: now };
-          }
-        },
-      });
-      await mixer.start();
-      mixerRef.current = mixer;
-      mixer.setAdvancedMicProcessing(advancedAudio);
-
-      const mixedStream = mixer.getMixedStream();
       const stream = new MediaStream([
         ...localCameraStream.getVideoTracks(),
-        ...mixedStream.getAudioTracks(),
       ]);
       localStreamRef.current = stream;
+      setMicrophoneStream(new MediaStream(localCameraStream.getAudioTracks()));
       setIsInCall(true);
-      setAudioUnlocked(true);
       socket.emit('call:join', {
         roomCode,
         userId: currentUser.id,
         name: currentUser.name
       });
     } catch {
-      mixerRef.current?.stop();
-      mixerRef.current = null;
       setCallError('Could not access camera/microphone. Check browser permissions.');
     }
   };
@@ -254,11 +207,11 @@ export default function VideoCallPanel({
 
   const leaveCall = () => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    mixerRef.current?.stop();
-    mixerRef.current = null;
+    microphoneStream?.getTracks().forEach((track) => track.stop());
     pcsRef.current.forEach((pc) => pc.close());
     pcsRef.current.clear();
     localStreamRef.current = null;
+    setMicrophoneStream(null);
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setPeers([]);
     setIsInCall(false);
@@ -267,7 +220,9 @@ export default function VideoCallPanel({
 
   const toggleMic = () => {
     const next = !isMicOn;
-    mixerRef.current?.setMicEnabled(next);
+    microphoneStream?.getAudioTracks().forEach((track) => {
+      track.enabled = next;
+    });
     setIsMicOn(next);
     flashLocalBadge(next ? 'Mic on' : 'Muted');
     socket.emit('call:media-state', { roomCode, state: { micOn: next, camOn: isCamOn } });
@@ -282,27 +237,6 @@ export default function VideoCallPanel({
     flashLocalBadge(next ? 'Camera on' : 'Camera off');
     socket.emit('call:media-state', { roomCode, state: { micOn: isMicOn, camOn: next } });
   };
-
-  useEffect(() => {
-    mixerRef.current?.setMicVolume(micVolume);
-  }, [micVolume]);
-
-  useEffect(() => {
-    mixerRef.current?.setMediaVolume(mediaVolume);
-  }, [mediaVolume]);
-
-  useEffect(() => {
-    mixerRef.current?.setVoicePriority(voicePriority);
-  }, [voicePriority]);
-
-  useEffect(() => {
-    if (!isInCall) return;
-    const attachCurrentMedia = () => mixerRef.current?.attachMediaElement(findWatchMediaElement());
-    attachCurrentMedia();
-    pcsRef.current.forEach((pc) => addOrReplaceMixedAudioTrack(pc).catch(() => null));
-    const intervalId = window.setInterval(attachCurrentMedia, 2000);
-    return () => window.clearInterval(intervalId);
-  }, [isInCall]);
 
   useEffect(() => {
     if (!isInCall) return;
@@ -358,7 +292,7 @@ export default function VideoCallPanel({
           if (!pc) pc = createPC(fromSocketId, fromUserId || fromSocketId, fromName || fromUserId || fromSocketId, false);
           await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
           await flushPendingIce(fromSocketId, pc);
-          const answer = await pc.createAnswer();
+          const answer = await pc.createAnswer({ offerToReceiveAudio: false, offerToReceiveVideo: true });
           await pc.setLocalDescription(answer);
           socket.emit('call:signal', {
             to: fromSocketId,
@@ -426,7 +360,7 @@ export default function VideoCallPanel({
         <div className="label-tag" style={{ marginBottom: '8px' }}>Call</div>
         <h3 style={{ margin: '0 0 6px' }}>Video Call</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
-          Call and watch audio are blended locally for a smoother watch party experience. Headphones are recommended.
+          Call and watch audio are mixed through the room audio server. Headphones are recommended.
         </p>
         <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: 12 }}>
           <input
@@ -488,7 +422,7 @@ export default function VideoCallPanel({
         </div>
 
         {peers.map((peer) => (
-          <PeerVideo key={peer.socketId} peer={peer} audioUnlocked={audioUnlocked} volume={participantsVolume} />
+          <PeerVideo key={peer.socketId} peer={peer} />
         ))}
       </div>
 
@@ -501,15 +435,18 @@ export default function VideoCallPanel({
       <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
         <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
         <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
-        <VolumeSlider label="Participants volume" value={participantsVolume} onChange={setParticipantsVolume} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-          <input
-            type="checkbox"
-            checked={voicePriority}
-            onChange={(event) => setVoicePriority(event.target.checked)}
-          />
-          Voice priority lowers movie audio slightly while you speak.
-        </label>
+        <VolumeSlider label="Room output" value={mixedRoomVolume} onChange={setMixedRoomVolume} />
+        <RoomAudioControls
+          roomCode={roomCode}
+          currentUser={currentUser}
+          microphoneStream={microphoneStream}
+          isActive={isInCall}
+          isMicEnabled={isMicOn}
+          micVolume={micVolume}
+          mediaVolume={mediaVolume}
+          mixedVolume={mixedRoomVolume}
+          onWarning={setAudioSupportWarning}
+        />
       </div>
 
       <div className="video-call-actions">
@@ -535,7 +472,7 @@ export default function VideoCallPanel({
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem' }}
         >
           <SpeakerIcon />
-          Enable audio
+          Start video playback
         </button>
       </div>
     </div>
@@ -612,9 +549,8 @@ function VolumeSlider({
   );
 }
 
-function PeerVideo({ peer, audioUnlocked, volume }: { peer: PeerState; audioUnlocked: boolean; volume: number }) {
+function PeerVideo({ peer }: { peer: PeerState }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     if (!peer.stream) return;
@@ -623,12 +559,7 @@ function PeerVideo({ peer, audioUnlocked, volume }: { peer: PeerState; audioUnlo
       videoRef.current.srcObject = peer.stream;
       videoRef.current.play().catch(() => null);
     }
-    if (audioRef.current) {
-      audioRef.current.srcObject = peer.stream;
-      audioRef.current.volume = volume;
-      if (audioUnlocked) audioRef.current.play().catch(() => null);
-    }
-  }, [audioUnlocked, peer.stream, volume]);
+  }, [peer.stream]);
 
   return (
     <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
@@ -636,7 +567,6 @@ function PeerVideo({ peer, audioUnlocked, volume }: { peer: PeerState; audioUnlo
       {peer.stream ? (
         <>
           <video ref={videoRef} data-call-media autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          <audio ref={audioRef} data-call-media autoPlay />
         </>
       ) : (
         <div style={{ position: 'absolute', inset: 0, background: '#0d1117', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>

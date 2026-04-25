@@ -1,0 +1,32 @@
+general: {
+  configs_folder = "/etc/janus"
+  plugins_folder = "/usr/lib/x86_64-linux-gnu/janus/plugins"
+  transports_folder = "/usr/lib/x86_64-linux-gnu/janus/transports"
+  events_folder = "/usr/lib/x86_64-linux-gnu/janus/events"
+  loggers_folder = "/usr/lib/x86_64-linux-gnu/janus/loggers"
+
+  debug_level = 4
+  log_to_stdout = true
+  session_timeout = 60
+  reclaim_session_timeout = 0
+  candidates_timeout = 45
+}
+
+media: {
+  rtp_port_range = "20000-20100"
+}
+
+nat: {
+  stun_server = "stun.l.google.com"
+  stun_port = 19302
+  full_trickle = true
+  ice_tcp = true
+
+  # Production deployments should add TURN credentials here or inject them
+  # through a generated config at container startup.
+  # turn_server = "turn.example.com"
+  # turn_port = 3478
+  # turn_type = "udp"
+  # turn_user = "watchparty"
+  # turn_pwd = "replace-me"
+}
