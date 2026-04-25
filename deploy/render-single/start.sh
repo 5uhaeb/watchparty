@@ -3,11 +3,16 @@ set -eu
 
 PUBLIC_PORT="${PORT:-10000}"
 BACKEND_PORT="${BACKEND_PORT:-5000}"
-export PUBLIC_PORT BACKEND_PORT
+JANUS_WS_PORT="${JANUS_WS_PORT:-8188}"
+export PUBLIC_PORT BACKEND_PORT JANUS_WS_PORT
 
 envsubst '$PUBLIC_PORT $BACKEND_PORT' \
   < /etc/nginx/templates/watchparty.conf.template \
   > /etc/nginx/conf.d/default.conf
+
+envsubst '$JANUS_WS_PORT' \
+  < /etc/janus/templates/janus.transport.websockets.jcfg.template \
+  > /etc/janus/janus.transport.websockets.jcfg
 
 PORT="$BACKEND_PORT" node /app/backend/src/server.js &
 BACKEND_PID="$!"

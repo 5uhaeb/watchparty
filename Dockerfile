@@ -11,7 +11,7 @@ RUN npm ci --omit=dev
 COPY backend/src ./src
 
 COPY audio-server/janus.jcfg /etc/janus/janus.jcfg
-COPY audio-server/janus.transport.websockets.jcfg /etc/janus/janus.transport.websockets.jcfg
+COPY audio-server/janus.transport.websockets.jcfg /etc/janus/templates/janus.transport.websockets.jcfg.template
 COPY audio-server/janus.plugin.audiobridge.jcfg /etc/janus/janus.plugin.audiobridge.jcfg
 COPY deploy/render-single/nginx.conf.template /etc/nginx/templates/watchparty.conf.template
 COPY deploy/render-single/start.sh /usr/local/bin/start-watchparty

@@ -27,10 +27,12 @@ const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
 
 export default function VideoCallPanel({
   roomCode,
-  currentUser
+  currentUser,
+  displayMode = 'full',
 }: {
   roomCode: string;
   currentUser: { id: string; name: string };
+  displayMode?: 'full' | 'tiles';
 }) {
   const [isInCall, setIsInCall] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -356,7 +358,7 @@ export default function VideoCallPanel({
 
   if (!isInCall) {
     return (
-      <div className="card glass" style={{ padding: '20px', textAlign: 'center' }}>
+      <div className="card glass video-call-card video-call-card-idle" style={{ padding: '20px', textAlign: 'center' }}>
         <div className="label-tag" style={{ marginBottom: '8px' }}>Call</div>
         <h3 style={{ margin: '0 0 6px' }}>Video Call</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
@@ -380,10 +382,11 @@ export default function VideoCallPanel({
 
   const totalVideos = peers.length + 1;
   const cols = totalVideos <= 1 ? 1 : totalVideos <= 4 ? 2 : 3;
+  const isTilesOnly = displayMode === 'tiles';
 
   return (
-    <div className="card glass" style={{ padding: '16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: 8 }}>
+    <div className={`card glass video-call-card ${isTilesOnly ? 'video-call-card-tiles' : ''}`} style={{ padding: '16px' }}>
+      <div className="video-call-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>
           Video Call
           <span style={{ marginLeft: '8px', background: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem' }}>
@@ -408,7 +411,7 @@ export default function VideoCallPanel({
           marginBottom: '12px'
         }}
       >
-        <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+        <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
           <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           <StatusBadges badges={localBadges} />
           {!isCamOn && (
@@ -416,7 +419,7 @@ export default function VideoCallPanel({
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
           )}
-          <div style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
+          <div className="video-call-name-badge" style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
             You {!isMicOn ? 'Muted' : ''}
           </div>
         </div>
@@ -426,13 +429,14 @@ export default function VideoCallPanel({
         ))}
       </div>
 
-      {audioSupportWarning && (
-        <div style={{ marginBottom: 12, color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
+      {!isTilesOnly && audioSupportWarning && (
+        <div className="call-audio-warning" style={{ marginBottom: 12, color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
           {audioSupportWarning}
         </div>
       )}
 
-      <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+      {!isTilesOnly && (
+      <div className="call-audio-controls" style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
         <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
         <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
         <VolumeSlider label="Room output" value={mixedRoomVolume} onChange={setMixedRoomVolume} />
@@ -448,7 +452,9 @@ export default function VideoCallPanel({
           onWarning={setAudioSupportWarning}
         />
       </div>
+      )}
 
+      {!isTilesOnly && (
       <div className="video-call-actions">
         <button
           className="button button-secondary"
@@ -475,6 +481,7 @@ export default function VideoCallPanel({
           Start video playback
         </button>
       </div>
+      )}
     </div>
   );
 }
@@ -514,7 +521,7 @@ function SpeakerIcon() {
 function StatusBadges({ badges }: { badges: string[] }) {
   if (!badges.length) return null;
   return (
-    <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
+    <div className="video-call-status-badges" style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
       {badges.map((badge) => (
         <span key={badge} style={{ background: 'rgba(0,0,0,0.7)', color: '#fff', padding: '3px 7px', borderRadius: 7, fontSize: '0.72rem', fontWeight: 700 }}>
           {badge}
@@ -534,7 +541,7 @@ function VolumeSlider({
   onChange: (value: number) => void;
 }) {
   return (
-    <label style={{ display: 'grid', gridTemplateColumns: '120px 1fr 42px', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+    <label className="volume-slider-row" style={{ display: 'grid', gridTemplateColumns: '120px 1fr 42px', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
       <span>{label}</span>
       <input
         type="range"
@@ -562,7 +569,7 @@ function PeerVideo({ peer }: { peer: PeerState }) {
   }, [peer.stream]);
 
   return (
-    <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+    <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
       <StatusBadges badges={peer.badges} />
       {peer.stream ? (
         <>
@@ -576,7 +583,7 @@ function PeerVideo({ peer }: { peer: PeerState }) {
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{peer.status}</div>
         </div>
       )}
-      <div style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
+      <div className="video-call-name-badge" style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
         {peer.name}
       </div>
     </div>

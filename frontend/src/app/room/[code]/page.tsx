@@ -554,7 +554,7 @@ export default function RoomPage() {
             if (file) handleFileDropped(file);
           }}
         >
-          <div className="watch-stage">
+          <div className="watch-stage" data-watch-stage>
             {activeSourceType ? (
               <RoomPlayer
                 roomCode={code}
@@ -602,6 +602,7 @@ export default function RoomPage() {
                 <VideoCallPanel
                   roomCode={code}
                   currentUser={{ id: guestId || userName, name: userName }}
+                  displayMode="tiles"
                 />
               </div>
             )}

@@ -34,13 +34,35 @@ type JanusAudioBridgeOptions = {
 
 const AUDIOBRIDGE_PLUGIN = 'janus.plugin.audiobridge';
 const OPUS_BITRATE = 128000;
+const PRODUCTION_AUDIO_SERVER_WS_URL = 'wss://watchparty-janus-audio.onrender.com/janus';
 
 export function getAudioServerWsUrl() {
-  return (
+  const configuredUrl = (
     process.env.NEXT_PUBLIC_AUDIO_SERVER_WS_URL ||
     process.env.VITE_AUDIO_SERVER_WS_URL ||
     ''
   );
+
+  if (typeof window === 'undefined') return configuredUrl;
+
+  const appIsLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+  const localJanusUrl = 'ws://localhost:8188/janus';
+  const sameOriginUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/janus`;
+  if (!configuredUrl) return appIsLocal ? localJanusUrl : PRODUCTION_AUDIO_SERVER_WS_URL;
+
+  try {
+    const parsed = new URL(configuredUrl, window.location.href);
+    const targetIsLocal = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+
+    if (!appIsLocal && targetIsLocal) return sameOriginUrl;
+    if (parsed.pathname === '/' || parsed.pathname === '') parsed.pathname = '/janus';
+    if (parsed.protocol === 'http:') return parsed.href.replace(/^http:/, 'ws:');
+    if (parsed.protocol === 'https:') return parsed.href.replace(/^https:/, 'wss:');
+  } catch {
+    return appIsLocal ? localJanusUrl : PRODUCTION_AUDIO_SERVER_WS_URL;
+  }
+
+  return configuredUrl;
 }
 
 export function roomCodeToJanusRoomId(roomCode: string) {

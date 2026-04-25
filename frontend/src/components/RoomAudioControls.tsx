@@ -136,7 +136,7 @@ export default function RoomAudioControls({
   };
 
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div className="room-audio-controls" style={{ display: 'grid', gap: 10 }}>
       <audio ref={audioRef} autoPlay playsInline />
       <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.4 }}>
         Call and watch audio are mixed through the room audio server. Headphones are recommended to reduce echo.

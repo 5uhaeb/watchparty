@@ -27,6 +27,7 @@ body {
   line-height: 1.6;
   overflow-x: hidden;
   min-width: 320px;
+  font-size: 15px;
 }
 
 a {
@@ -369,15 +370,17 @@ textarea {
 }
 
 .container:has(.room-page) {
-  max-width: 1540px;
+  max-width: 1360px;
+  padding-top: 18px;
+  padding-bottom: 24px;
 }
 
 .room-watch-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
 }
 
 .room-watch-layout.has-call.call-layout-side {
-  grid-template-columns: minmax(640px, 1fr) minmax(340px, 390px);
+  grid-template-columns: minmax(560px, 1fr) minmax(292px, 330px);
 }
 
 .room-watch-layout.call-layout-overlay {
@@ -399,13 +402,18 @@ textarea {
   width: 100%;
 }
 
+.watch-stage .local-video-frame {
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
 .call-overlay-panel {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: clamp(310px, 28vw, 420px);
-  max-height: min(72vh, calc(100% - 32px));
-  overflow: auto;
+  right: 14px;
+  bottom: 52px;
+  width: clamp(150px, 18vw, 260px);
+  max-height: min(42vh, calc(100% - 28px));
+  overflow: visible;
   z-index: 12;
 }
 
@@ -414,7 +422,7 @@ textarea {
 }
 
 .call-overlay-panel .video-call-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-columns: 1fr !important;
 }
 
 .source-label {
@@ -551,6 +559,194 @@ textarea {
 
 .video-call-grid {
   min-width: 0;
+}
+
+.video-call-card {
+  min-width: 0;
+}
+
+.video-call-card-tiles {
+  padding: 0 !important;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.video-call-card-tiles .video-call-header {
+  display: none !important;
+}
+
+.video-call-card-tiles .video-call-grid {
+  grid-template-columns: 1fr !important;
+  gap: 8px !important;
+  margin: 0 !important;
+}
+
+.video-call-card-tiles .video-call-tile {
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+}
+
+.room-page {
+  gap: 14px;
+  font-size: 0.92rem;
+}
+
+.room-page .card,
+.room-page .glass {
+  border-width: 2px;
+  box-shadow: 3px 3px 0 0 var(--outline);
+}
+
+.room-page > .card.glass,
+.room-page .content-column > .card.glass {
+  padding: 14px 16px;
+}
+
+.room-page h1 {
+  font-size: 1.1rem !important;
+}
+
+.room-page h3 {
+  font-size: 1rem;
+}
+
+.room-page .button,
+.room-page button:not([class]) {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  border-width: 2px;
+  box-shadow: 3px 3px 0 0 var(--outline);
+}
+
+.room-page .player-toolbar,
+.room-page .room-actions,
+.room-page .video-call-actions {
+  gap: 8px;
+}
+
+.room-side-column {
+  gap: 14px;
+}
+
+.room-side-column .video-call-actions {
+  grid-template-columns: 1fr;
+}
+
+.room-side-column .video-call-grid {
+  grid-template-columns: 1fr !important;
+}
+
+.room-side-column .volume-slider-row {
+  grid-template-columns: 86px minmax(0, 1fr) 38px !important;
+}
+
+.room-side-column .room-audio-controls {
+  gap: 8px !important;
+}
+
+.video-call-header h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.video-call-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.video-call-actions .button {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.video-call-actions .button svg {
+  flex: 0 0 auto;
+}
+
+.volume-slider-row {
+  min-width: 0;
+}
+
+.volume-slider-row input {
+  width: 100%;
+}
+
+.room-audio-controls .button {
+  width: 100%;
+  white-space: normal;
+}
+
+.video-call-tile {
+  min-width: 0;
+}
+
+.video-call-name-badge,
+.video-call-status-badges span {
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+
+.watch-stage:fullscreen .player-stack,
+.watch-stage:fullscreen .player-shell,
+.watch-stage:fullscreen .player-frame,
+.watch-stage:fullscreen .local-video-frame {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+
+.watch-stage:fullscreen .player-toolbar {
+  display: none;
+}
+
+.watch-stage:fullscreen .call-overlay-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 58px;
+  width: min(18vw, 260px);
+  max-height: min(42vh, 420px);
+  overflow: visible;
+  z-index: 2147483647;
+}
+
+.watch-stage:fullscreen .call-overlay-panel .video-call-card {
+  padding: 0 !important;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.watch-stage:fullscreen .call-overlay-panel .video-call-header,
+.watch-stage:fullscreen .call-overlay-panel .call-audio-warning,
+.watch-stage:fullscreen .call-overlay-panel .call-audio-controls,
+.watch-stage:fullscreen .call-overlay-panel .video-call-actions {
+  display: none !important;
+}
+
+.watch-stage:fullscreen .call-overlay-panel .video-call-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  margin: 0 !important;
+}
+
+.watch-stage:fullscreen .call-overlay-panel .video-call-tile {
+  border: 2px solid rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.48);
 }
 
 ::-webkit-scrollbar {
@@ -724,6 +920,19 @@ textarea {
     grid-template-columns: 1fr !important;
   }
 
+  .video-call-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .volume-slider-row {
+    grid-template-columns: 1fr 54px !important;
+    gap: 6px 10px !important;
+  }
+
+  .volume-slider-row > span:first-child {
+    grid-column: 1 / -1;
+  }
+
   .call-overlay-panel {
     position: static;
     width: 100%;
@@ -733,6 +942,18 @@ textarea {
 
   .call-overlay-panel .video-call-grid {
     grid-template-columns: 1fr !important;
+  }
+
+  .watch-stage:fullscreen .call-overlay-panel {
+    right: 10px;
+    bottom: 10px;
+    width: min(46vw, 190px);
+    max-height: 44vh;
+  }
+
+  .watch-stage:fullscreen .call-overlay-panel .video-call-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
   }
 
   .notification-menu {

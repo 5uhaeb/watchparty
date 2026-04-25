@@ -245,7 +245,7 @@ export default function RoomPlayer({
   };
 
   const enterFullscreen = async () => {
-    const element = document.querySelector('[data-player-shell]');
+    const element = document.querySelector('[data-watch-stage]') || document.querySelector('[data-player-shell]');
     if (!(element instanceof HTMLElement)) return;
 
     try {
