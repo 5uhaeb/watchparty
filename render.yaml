@@ -1,27 +1,17 @@
 services:
   - type: web
-    name: watchparty-backend
-    env: node
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: REDIS_URL= npm start
+    name: watchparty
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: PORT
+        value: 10000
+      - key: BACKEND_PORT
         value: 5000
-      - key: NODE_VERSION
-        value: 20.x
       - key: MONGODB_URI
         sync: false
       - key: CLIENT_URL
         sync: false
       - key: JWT_SECRET
         generateValue: true
-  - type: web
-    name: watchparty-janus-audio
-    runtime: docker
-    dockerfilePath: ./audio-server/Dockerfile
-    dockerContext: ./audio-server
-    plan: starter
-    envVars:
-      - key: PORT
-        value: 8188

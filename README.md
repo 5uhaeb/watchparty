@@ -37,7 +37,7 @@ Without TURN, local streaming can fail across stricter NATs or mobile networks. 
 
 ## Room audio mixing
 
-WatchParty uses a separate Janus AudioBridge media service for room audio. It lives in `audio-server/` and deploys from the same root Render Blueprint as the backend, but it is still a separate Render service named `watchparty-janus-audio`.
+WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, the root `Dockerfile` runs the Node backend and Janus in the same web service, with nginx routing `/janus` to Janus internally.
 
 The frontend requires the Janus WebSocket URL:
 
@@ -48,7 +48,7 @@ NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 For Render, set it to the deployed Janus audio service URL:
 
 ```env
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-render-janus-audio-url/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-render-backend-url/janus
 ```
 
 If this value is missing or the Janus service is not running, camera video can still connect, but mixed room audio will not work.
@@ -118,8 +118,9 @@ NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 ## Vercel + Render deployment
 - Deploy `frontend/` to Vercel
 - Deploy the root `render.yaml` Blueprint to Render
-- Render creates `watchparty-backend` and `watchparty-janus-audio`
-- Point the frontend env vars to your Render backend URL and Janus audio WebSocket URL
+- Render creates one Docker web service named `watchparty`
+- Point the frontend API/socket env vars to the Render backend URL
+- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the same Render URL with `/janus`, for example `wss://watchparty-6a3e.onrender.com/janus`
 - Allow CORS for the frontend URL in backend env
 
 ## What is included
