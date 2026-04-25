@@ -45,6 +45,50 @@ function can(room, userId, permission) {
   return room.permissions?.[permission] === 'all';
 }
 
+function normalizeProvider(provider) {
+  const value = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
+  if (value === 'jiohotstar') return 'hotstar';
+  if (['netflix', 'prime', 'hotstar', 'ott'].includes(value)) return value;
+  return '';
+}
+
+function parsePositionSec(positionSec) {
+  const nextPosition = Number(positionSec);
+  if (!Number.isFinite(nextPosition) || nextPosition < 0 || nextPosition > 48 * 60 * 60) {
+    return null;
+  }
+  return nextPosition;
+}
+
+function sanitizeSourceMeta(payload = {}) {
+  return {
+    provider: normalizeProvider(payload.provider),
+    sourceType: payload.sourceType === 'ott-sync' ? 'ott-sync' : payload.sourceType,
+    tabUrlHash: typeof payload.tabUrlHash === 'string' ? payload.tabUrlHash.slice(0, 80) : undefined,
+    title: typeof payload.title === 'string' ? payload.title.slice(0, 160) : undefined,
+    pageUrl: typeof payload.pageUrl === 'string' ? payload.pageUrl.slice(0, 300) : undefined,
+    paused: typeof payload.paused === 'boolean' ? payload.paused : undefined,
+    playbackRate: Number.isFinite(Number(payload.playbackRate)) ? Number(payload.playbackRate) : undefined,
+  };
+}
+
+function validateOttPayload(room, payload = {}) {
+  if (payload.sourceType !== 'ott-sync') return { ok: true, meta: sanitizeSourceMeta(payload) };
+
+  if (room?.source?.type !== 'ott-sync') {
+    return { ok: false, message: 'Room source is not OTT sync.' };
+  }
+
+  const provider = normalizeProvider(payload.provider);
+  const roomProvider = normalizeProvider(room.source.provider);
+  if (!provider) return { ok: false, message: 'Missing OTT provider.' };
+  if (roomProvider && roomProvider !== 'ott' && provider !== roomProvider) {
+    return { ok: false, message: `Wrong provider for this room. Expected ${roomProvider}.` };
+  }
+
+  return { ok: true, meta: sanitizeSourceMeta(payload) };
+}
+
 async function isRoomMember(room, userId) {
   if (!room || !userId) return false;
   return (
@@ -96,11 +140,10 @@ function normalizeSource(payload, socket) {
   }
 
   if (payload.type === 'ott-sync') {
-    const provider = typeof payload.provider === 'string' ? payload.provider.trim().toLowerCase() : 'ott';
-    const allowedProviders = new Set(['netflix', 'prime', 'hotstar', 'jiohotstar', 'ott']);
+    const provider = normalizeProvider(payload.provider) || 'ott';
     return {
       type: 'ott-sync',
-      provider: allowedProviders.has(provider) ? provider : 'ott',
+      provider,
     };
   }
 
@@ -168,7 +211,74 @@ function serializePlayerState(room) {
     isPlaying: !!playback.isPlaying,
     hostUserId: room.ownerGuestId,
     serverTs: Date.now(),
+    provider: playback.provider || room.source?.provider,
+    sourceType: room.source?.type,
+    tabUrlHash: playback.tabUrlHash,
+    title: playback.title,
   };
+}
+
+async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
+  const isHeartbeat = eventName === 'player:heartbeat';
+  if (!consumeBucket(socket, isHeartbeat ? 'player:heartbeat' : 'player:control', isHeartbeat ? 6 : 10, isHeartbeat ? 20 * 1000 : 5 * 1000)) return;
+
+  const targetRoomCode = getRoomCode(socket, rawPayload.roomCode);
+  const actorUserId = getUserId(socket, rawPayload.userId);
+  const nextPosition = parsePositionSec(rawPayload.positionSec);
+  if (!targetRoomCode || nextPosition === null) {
+    socket.emit('error:validation', { message: 'Invalid playback position.' });
+    return;
+  }
+
+  const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+  if (!room) {
+    socket.emit('error:validation', { message: 'Room not found.' });
+    return;
+  }
+
+  const ottValidation = validateOttPayload(room, rawPayload);
+  if (!ottValidation.ok) {
+    socket.emit('extension:error', { message: ottValidation.message });
+    return;
+  }
+
+  if (!can(room, actorUserId, 'controlPlayback')) {
+    socket.emit('extension:error', { message: 'You do not have permission to control playback.' });
+    return;
+  }
+
+  const atServerTs = Date.now();
+  const isPlaying = eventName === 'player:play' ? true : eventName === 'player:pause' ? false : room.playback?.isPlaying || false;
+  const meta = ottValidation.meta || {};
+  const playbackSet = {
+    'playback.currentTime': nextPosition,
+    'playback.updatedAt': new Date(atServerTs),
+    'playback.updatedBy': actorUserId || 'unknown',
+  };
+
+  if (eventName === 'player:play' || eventName === 'player:pause') {
+    playbackSet['playback.isPlaying'] = isPlaying;
+  }
+
+  if (meta.sourceType === 'ott-sync') {
+    playbackSet['playback.sourceType'] = 'ott-sync';
+    playbackSet['playback.provider'] = meta.provider;
+    if (meta.tabUrlHash) playbackSet['playback.tabUrlHash'] = meta.tabUrlHash;
+    if (meta.title) playbackSet['playback.title'] = meta.title;
+    if (meta.pageUrl) playbackSet['playback.pageUrl'] = meta.pageUrl;
+    if (typeof meta.paused === 'boolean') playbackSet['playback.paused'] = meta.paused;
+    if (typeof meta.playbackRate === 'number') playbackSet['playback.playbackRate'] = meta.playbackRate;
+  }
+
+  await Room.findOneAndUpdate({ code: targetRoomCode }, { $set: playbackSet });
+
+  socket.to(targetRoomCode).emit(eventName, {
+    positionSec: nextPosition,
+    atServerTs,
+    byUserId: actorUserId,
+    roomCode: targetRoomCode,
+    ...meta,
+  });
 }
 
 function registerRoomSocket(io, socket) {
@@ -303,120 +413,37 @@ function registerRoomSocket(io, socket) {
     socket.userData = { id: claims.sub, name: claims.name || claims.sub };
     socket.data.guestId = claims.sub;
     socket.data.displayName = claims.name || claims.sub;
+    socket.data.isExtension = true;
     await presenceJoin(io, roomCode, socket);
-    socket.emit('extension:joined', { roomCode, userId: claims.sub });
-  });
 
-  socket.on('player:play', async ({ roomCode, userId, positionSec }) => {
-    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
-    const targetRoomCode = getRoomCode(socket, roomCode);
-    const actorUserId = getUserId(socket, userId);
-    const room = await Room.findOne({ code: targetRoomCode });
-    if (!can(room, actorUserId, 'controlPlayback')) return;
-
-    const atServerTs = Date.now();
-    const payload = {
-      positionSec: Number(positionSec || 0),
-      atServerTs,
-    };
-
-    await Room.findOneAndUpdate(
-      { code: targetRoomCode },
-      {
-        playback: {
-          isPlaying: true,
-          currentTime: payload.positionSec,
-          updatedAt: new Date(atServerTs),
-          updatedBy: actorUserId || 'unknown',
-        },
-      }
-    );
-
-    socket.to(targetRoomCode).emit('player:play', { ...payload, byUserId: actorUserId });
-  });
-
-  socket.on('player:pause', async ({ roomCode, userId, positionSec }) => {
-    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
-    const targetRoomCode = getRoomCode(socket, roomCode);
-    const actorUserId = getUserId(socket, userId);
-    const room = await Room.findOne({ code: targetRoomCode });
-    if (!can(room, actorUserId, 'controlPlayback')) return;
-
-    const atServerTs = Date.now();
-    const payload = {
-      positionSec: Number(positionSec || 0),
-      atServerTs,
-    };
-
-    await Room.findOneAndUpdate(
-      { code: targetRoomCode },
-      {
-        playback: {
-          isPlaying: false,
-          currentTime: payload.positionSec,
-          updatedAt: new Date(atServerTs),
-          updatedBy: actorUserId || 'unknown',
-        },
-      }
-    );
-
-    socket.to(targetRoomCode).emit('player:pause', { ...payload, byUserId: actorUserId });
-  });
-
-  socket.on('player:seek', async ({ roomCode, userId, positionSec }) => {
-    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
-    const targetRoomCode = getRoomCode(socket, roomCode);
-    const actorUserId = getUserId(socket, userId);
-    const room = await Room.findOne({ code: targetRoomCode });
-    if (!can(room, actorUserId, 'controlPlayback')) return;
-
-    const atServerTs = Date.now();
-    const nextPosition = Number(positionSec || 0);
-
-    await Room.findOneAndUpdate(
-      { code: targetRoomCode },
-      {
-        $set: {
-          'playback.currentTime': nextPosition,
-          'playback.updatedAt': new Date(atServerTs),
-          'playback.updatedBy': actorUserId || 'unknown',
-        },
-      }
-    );
-
-    socket.to(targetRoomCode).emit('player:seek', {
-      positionSec: nextPosition,
-      atServerTs,
-      byUserId: actorUserId,
+    const canControlPlayback = can(room, claims.sub, 'controlPlayback');
+    socket.emit('extension:joined', {
+      roomCode,
+      userId: claims.sub,
+      sourceType: room.source?.type,
+      provider: room.source?.provider,
+      canControlPlayback,
     });
+
+    if (room.source?.type !== 'ott-sync') {
+      socket.emit('extension:error', { message: 'Wrong source selected. Choose OTT sync in the room.' });
+    }
   });
 
-  socket.on('player:heartbeat', async ({ roomCode, positionSec }) => {
-    if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
-    const targetRoomCode = getRoomCode(socket, roomCode);
-    const actorUserId = getUserId(socket);
-    const room = await Room.findOne({ code: targetRoomCode });
-    if (!can(room, actorUserId, 'controlPlayback')) return;
+  socket.on('player:play', async (payload = {}) => {
+    await handlePlayerEvent(io, socket, 'player:play', payload);
+  });
 
-    const atServerTs = Date.now();
-    const nextPosition = Number(positionSec || 0);
+  socket.on('player:pause', async (payload = {}) => {
+    await handlePlayerEvent(io, socket, 'player:pause', payload);
+  });
 
-    await Room.findOneAndUpdate(
-      { code: targetRoomCode },
-      {
-        $set: {
-          'playback.currentTime': nextPosition,
-          'playback.updatedAt': new Date(atServerTs),
-          'playback.updatedBy': actorUserId || 'unknown',
-        },
-      }
-    );
+  socket.on('player:seek', async (payload = {}) => {
+    await handlePlayerEvent(io, socket, 'player:seek', payload);
+  });
 
-    socket.to(targetRoomCode).emit('player:heartbeat', {
-      positionSec: nextPosition,
-      atServerTs,
-      byUserId: actorUserId,
-    });
+  socket.on('player:heartbeat', async (payload = {}) => {
+    await handlePlayerEvent(io, socket, 'player:heartbeat', payload);
   });
 
   socket.on('player:state', async ({ roomCode } = {}, callback) => {
@@ -690,3 +717,10 @@ function registerRoomSocket(io, socket) {
 }
 
 module.exports = registerRoomSocket;
+module.exports._test = {
+  can,
+  consumeBucket,
+  normalizeProvider,
+  parsePositionSec,
+  validateOttPayload,
+};

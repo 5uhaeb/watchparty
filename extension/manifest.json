@@ -25,12 +25,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.netflix.com/*"],
-      "js": ["content-netflix.js"],
+      "js": ["ott-sync-math.js", "content-core.js", "content-netflix.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://*.primevideo.com/*", "https://www.amazon.com/gp/video/*"],
-      "js": ["content-prime.js"],
+      "js": ["ott-sync-math.js", "content-core.js", "content-prime.js"],
       "run_at": "document_idle"
     },
     {
@@ -40,7 +40,7 @@
         "https://jiohotstar.com/*",
         "https://*.jiohotstar.com/*"
       ],
-      "js": ["content-hotstar.js"],
+      "js": ["ott-sync-math.js", "content-core.js", "content-hotstar.js"],
       "run_at": "document_idle"
     }
   ],

@@ -12,9 +12,11 @@ Use this only where it complies with the streaming service terms that apply to y
 
 - `manifest.json`: MV3 extension manifest.
 - `background.ts` / `background.js`: service worker that owns the Socket.IO connection.
-- `content-netflix.ts` / `content-netflix.js`: Netflix video adapter.
-- `content-prime.ts` / `content-prime.js`: Prime Video video adapter.
-- `content-hotstar.ts` / `content-hotstar.js`: Hotstar/JioHotstar video adapter, including IPL streams opened by each subscriber.
+- `ott-sync-math.ts` / `ott-sync-math.js`: small shared drift and event-loop helpers.
+- `content-core.ts` / `content-core.js`: shared video detection, listener wiring, heartbeat, drift correction, and remote-event application.
+- `content-netflix.ts` / `content-netflix.js`: Netflix provider registration.
+- `content-prime.ts` / `content-prime.js`: Prime Video provider registration.
+- `content-hotstar.ts` / `content-hotstar.js`: Hotstar/JioHotstar provider registration, including IPL streams opened by each subscriber.
 - `popup.html` / `popup.ts` / `popup.js`: room code, backend URL, web app URL, and token entry.
 - `vendor/socket.io.min.js`: vendored Socket.IO client used by the service worker.
 
@@ -24,12 +26,12 @@ The `*.ts` files are the source mirrors. The checked-in `*.js` files are what Ch
 
 Set these environment variables on the deployed backend and frontend:
 
-- `EXTENSION_TOKEN_SECRET`: shared signing secret for short-lived extension JWTs. If omitted, the backend falls back to `NEXTAUTH_SECRET`.
-- `EXTENSION_INTERNAL_SECRET`: shared secret used by the authenticated web app API route when requesting a backend token.
+- `EXTENSION_TOKEN_SECRET`: backend signing secret for short-lived extension JWTs. If omitted, the backend falls back to `GUEST_JWT_SECRET` or `SESSION_SECRET`.
+- `NEXT_PUBLIC_API_URL`: frontend URL for the backend API, used by the web app token route.
 
 The web app exposes:
 
-- `GET /api/extension/token`: requires a signed-in web session and returns `{ token, expiresAt }`.
+- `GET /api/extension/token`: forwards the anonymous guest cookie to the backend and returns `{ token, expiresAt }`.
 
 The backend exposes:
 
@@ -49,8 +51,16 @@ The backend exposes:
    - Room code.
 8. Click "Get Token"; copy the returned `token` value.
 9. Paste the token into the popup and click "Connect".
-10. In the room, choose **Change Source** -> **OTT / Hotstar**.
-11. Open the same Netflix, Prime Video, or Hotstar/JioHotstar title or IPL match in each browser profile and use playback normally.
+10. In the room, choose **Change Source** -> **OTT / Hotstar** and select the provider. Host-only control is the default; admins can allow everyone to control playback from room permissions.
+11. Open the same Netflix, Prime Video, or Hotstar/JioHotstar title or IPL match in each browser profile and use playback normally. The controller sends play, pause, seek, and heartbeat events; followers apply those events to their own logged-in tab.
+
+## Sync Behavior
+
+- The extension picks the most likely main video by preferring visible, active, non-preview video elements with useful duration and readiness.
+- SPA navigation, episode changes, delayed player load, and shadow DOM players are handled by repeated scans plus a `MutationObserver`.
+- Heartbeats are sent every 4 seconds only while the active controller is playing.
+- Small drift is ignored, medium drift is corrected with temporary `playbackRate`, and large drift seeks directly.
+- Provider and room metadata are included so Netflix tabs do not apply Prime or Hotstar room events.
 
 ## Firefox MV3 Caveats
 
@@ -59,5 +69,8 @@ Firefox MV3 support differs from Chromium, especially around service worker life
 ## Troubleshooting
 
 - If the popup says a token is invalid, generate a new one; tokens are intentionally short-lived.
+- If the popup says "Wrong source selected", open the WatchParty room and choose an OTT source matching the tab provider.
+- If the popup says "Backend unreachable", confirm the Socket.IO URL and backend CORS settings.
+- If the popup says "Video not detected", start playback in the OTT tab, dismiss previews/ads if needed, then reload the OTT tab.
 - If a tab does not sync after navigating inside Netflix, Prime Video, or Hotstar/JioHotstar, reload that streaming tab. The content script uses a `MutationObserver` for SPA navigation, but streaming pages can occasionally replace players in unusual ways.
 - If Socket.IO fails to connect, confirm backend CORS allows `chrome-extension://` origins and that the backend URL points at the Socket.IO server, not the frontend.

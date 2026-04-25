@@ -56,6 +56,22 @@
         flex: 1;
       }
 
+      .status-card {
+        display: grid;
+        gap: 6px;
+        margin: 12px 0;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 10px;
+        background: #0f172a;
+        font-size: 12px;
+        color: #cbd5e1;
+      }
+
+      .status-card strong {
+        color: #f8fafc;
+      }
+
       .secondary {
         color: #f8fafc;
         background: #334155;
@@ -89,6 +105,16 @@
     <div class="row">
       <button id="save">Connect</button>
       <button id="openToken" class="secondary">Get Token</button>
+    </div>
+    <div class="row" style="margin-top: 8px">
+      <button id="openRoom" class="secondary">Open Room</button>
+      <button id="refreshToken" class="secondary">Refresh Token</button>
+    </div>
+    <div class="status-card">
+      <div>Connection: <strong id="connectionState">Not connected</strong></div>
+      <div>Provider: <strong id="providerState">Unknown</strong></div>
+      <div>Video: <strong id="videoState">Unknown</strong></div>
+      <div>Control: <strong id="controlState">Unknown</strong></div>
     </div>
     <div id="status"></div>
     <script src="popup.js"></script>

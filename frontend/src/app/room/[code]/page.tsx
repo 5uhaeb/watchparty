@@ -31,6 +31,7 @@ export default function RoomPage() {
   const [callLayout, setCallLayout] = useState<CallLayout>('side');
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [sourceTab, setSourceTab] = useState<SourceTab>('youtube');
+  const [ottProvider, setOttProvider] = useState('hotstar');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
   const [sourceMessage, setSourceMessage] = useState('');
   const [localStreamFileDraft, setLocalStreamFileDraft] = useState<File | null>(null);
@@ -225,7 +226,7 @@ export default function RoomPage() {
     }
 
     if (sourceTab === 'ott-sync') {
-      socket.emit('room:setSource', { type: 'ott-sync', provider: 'hotstar' });
+      socket.emit('room:setSource', { type: 'ott-sync', provider: ottProvider });
       setLocalStreamFile(null);
       setShowSourceModal(false);
       return;
@@ -376,6 +377,16 @@ export default function RoomPage() {
       ) : sourceTab === 'ott-sync' ? (
         <div style={{ display: 'grid', gap: 8 }}>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>OTT sync mode</span>
+          <select
+            className="input"
+            value={ottProvider}
+            onChange={(event) => setOttProvider(event.target.value)}
+          >
+            <option value="hotstar">Hotstar / JioHotstar</option>
+            <option value="netflix">Netflix</option>
+            <option value="prime">Prime Video</option>
+            <option value="ott">Any supported OTT</option>
+          </select>
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
             Use this for Hotstar/JioHotstar IPL, Netflix, or Prime. Each person opens the same match or title in their own subscribed OTT tab, then the extension syncs play, pause, seek, and drift.
           </p>

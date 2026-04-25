@@ -315,7 +315,7 @@ export default function RoomPlayer({
   }
 
   if (adapterType === 'ott-sync') {
-    return <OttControls roomCode={roomCode} currentUserId={currentUserId} isHost={isHost} />;
+    return <OttControls roomCode={roomCode} currentUserId={currentUserId} isHost={isHost} provider={sourceData?.provider || 'ott'} />;
   }
 
   return (
@@ -362,10 +362,12 @@ function OttControls({
   roomCode,
   currentUserId,
   isHost = false,
+  provider = 'ott',
 }: {
   roomCode: string;
   currentUserId?: string;
   isHost?: boolean;
+  provider?: string;
 }) {
   const [time, setTime] = useState('0');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -438,12 +440,14 @@ function OttControls({
     const intervalId = window.setInterval(() => {
       socket.emit('player:heartbeat', {
         roomCode,
+        sourceType: 'ott-sync',
+        provider,
         positionSec: parseFloat(time) || 0,
       });
     }, 3000);
 
     return () => window.clearInterval(intervalId);
-  }, [isHost, isPlaying, roomCode, time]);
+  }, [isHost, isPlaying, provider, roomCode, time]);
 
   const broadcast = (isPlaying: boolean) => {
     const positionSec = parseFloat(time) || 0;
@@ -451,6 +455,8 @@ function OttControls({
     socket.emit(isPlaying ? 'player:play' : 'player:pause', {
       roomCode,
       userId: currentUserId,
+      sourceType: 'ott-sync',
+      provider,
       positionSec,
     });
   };
@@ -461,6 +467,8 @@ function OttControls({
     socket.emit('player:seek', {
       roomCode,
       userId: currentUserId,
+      sourceType: 'ott-sync',
+      provider,
       positionSec,
     });
   };

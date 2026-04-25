@@ -16,7 +16,18 @@ This starter supports:
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
 - anonymous guest identity with a signed httpOnly cookie
 
-For Netflix, Prime Video, and Hotstar/JioHotstar, this project is designed for **sync only**. It does not capture or rebroadcast protected streams. Use the included browser extension so each participant can open the same subscribed title or IPL match in their own OTT tab while WatchParty syncs playback controls.
+For Netflix, Prime Video, and Hotstar/JioHotstar, this project is designed for **sync only**. It does not capture, download, decrypt, bypass DRM, or rebroadcast protected streams. Use the included browser extension so each participant can open the same subscribed title or IPL match in their own OTT tab while WatchParty syncs playback controls.
+
+## OTT sync flow
+
+1. Create or join a room.
+2. Choose **Change Source** -> **OTT / Hotstar** and select Netflix, Prime Video, Hotstar/JioHotstar, or any supported OTT.
+3. Load the unpacked extension from `extension/`.
+4. In the extension popup, enter the backend Socket.IO URL, web app URL, room code, and short-lived extension token.
+5. Each participant opens the same OTT title or IPL match in their own logged-in tab.
+6. The host controls playback by default. Room admins can switch playback permission to guests when everyone should be allowed to control.
+
+If an OTT tab does not detect video, start playback once, close preview/trailer overlays, and reload the OTT tab. If the popup reports the wrong provider, change the room source provider or open the matching OTT tab.
 
 ## Local file streaming
 
@@ -114,6 +125,8 @@ NEXT_PUBLIC_TURN_USER=
 NEXT_PUBLIC_TURN_CRED=
 NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 ```
+
+The extension itself only receives the short-lived token returned by the web app token route. The token route forwards your anonymous guest cookie to the backend and does not expose `EXTENSION_TOKEN_SECRET`.
 
 ## Vercel + Render deployment
 - Deploy `frontend/` to Vercel
