@@ -9,12 +9,27 @@ export function getIceServers(): RTCIceServer[] {
     servers.push({ urls: stunUrls });
   }
 
-  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL?.trim();
-  if (turnUrl) {
+  const turnUrls = process.env.NEXT_PUBLIC_TURN_URLS || process.env.NEXT_PUBLIC_TURN_URL;
+  const configuredTurnUrls = turnUrls
+    ?.split(',')
+    .map((url) => url.trim())
+    .filter(Boolean) || [];
+
+  if (configuredTurnUrls.length) {
     servers.push({
-      urls: turnUrl,
+      urls: configuredTurnUrls,
       username: process.env.NEXT_PUBLIC_TURN_USER || undefined,
       credential: process.env.NEXT_PUBLIC_TURN_CRED || undefined,
+    });
+  } else {
+    servers.push({
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
     });
   }
 

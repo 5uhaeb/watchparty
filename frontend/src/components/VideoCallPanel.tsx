@@ -129,10 +129,25 @@ export default function VideoCallPanel({
       if (pc.connectionState === 'connected') updatePeer(remoteSocketId, { status: 'Connected' });
       if (pc.connectionState === 'connecting') updatePeer(remoteSocketId, { status: 'Connecting' });
       if (['failed', 'disconnected'].includes(pc.connectionState)) {
-        updatePeer(remoteSocketId, { status: 'Reconnecting' });
+        updatePeer(remoteSocketId, { status: 'Reconnecting via relay' });
         pc.restartIce?.();
       }
       if (pc.connectionState === 'closed') updatePeer(remoteSocketId, { status: 'Left' });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        updatePeer(remoteSocketId, { status: 'Connected' });
+      }
+      if (pc.iceConnectionState === 'checking') {
+        updatePeer(remoteSocketId, { status: 'Connecting' });
+      }
+      if (pc.iceConnectionState === 'failed') {
+        updatePeer(remoteSocketId, { status: 'Relay needed' });
+      }
+      if (pc.iceConnectionState === 'disconnected') {
+        updatePeer(remoteSocketId, { status: 'Reconnecting' });
+      }
     };
 
     pc.onicecandidate = (event) => {
@@ -567,6 +582,7 @@ function VolumeSlider({
 
 function PeerVideo({ peer }: { peer: PeerState }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const showConnectionStatus = peer.status !== 'Connected';
 
   useEffect(() => {
     if (!peer.stream) return;
@@ -583,6 +599,11 @@ function PeerVideo({ peer }: { peer: PeerState }) {
       {peer.stream ? (
         <>
           <video ref={videoRef} data-call-media autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          {showConnectionStatus && (
+            <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.72)', color: 'white', padding: '3px 7px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700 }}>
+              {peer.status}
+            </div>
+          )}
         </>
       ) : (
         <div style={{ position: 'absolute', inset: 0, background: '#0d1117', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>

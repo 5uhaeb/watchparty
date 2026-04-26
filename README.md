@@ -39,12 +39,12 @@ For WebRTC networking, the frontend reads:
 
 ```env
 NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URL=
+NEXT_PUBLIC_TURN_URLS=
 NEXT_PUBLIC_TURN_USER=
 NEXT_PUBLIC_TURN_CRED=
 ```
 
-Without TURN, local streaming can fail across stricter NATs or mobile networks. Set TURN credentials for cross-network rooms, such as a laptop on WiFi streaming to a phone on 4G.
+Without TURN, local streaming and camera calls can fail across stricter NATs or mobile networks. Set TURN credentials for cross-network rooms, such as a laptop on WiFi streaming to a phone on 4G. `NEXT_PUBLIC_TURN_URLS` accepts comma-separated URLs, for example UDP and TCP relay URLs from the same provider.
 
 ## Room audio mixing
 
@@ -120,7 +120,7 @@ reconnect after a backend restart.
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URL=
+NEXT_PUBLIC_TURN_URLS=
 NEXT_PUBLIC_TURN_USER=
 NEXT_PUBLIC_TURN_CRED=
 NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
