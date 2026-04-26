@@ -28,6 +28,7 @@ interface CallPeer {
   ignoreOffer: boolean;
   isSettingRemoteAnswerPending: boolean;
   polite: boolean;
+  shouldOffer: boolean;
   restartTimer?: number;
 }
 
@@ -79,6 +80,7 @@ export default function VideoCallPanel({
   const [mixedRoomVolume, setMixedRoomVolume] = useState(1);
   const [advancedAudio, setAdvancedAudio] = useState(false);
   const [permissionIssue, setPermissionIssue] = useState<MediaPermissionIssue | null>(null);
+  const [callReconnectKey, setCallReconnectKey] = useState(0);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -196,10 +198,11 @@ export default function VideoCallPanel({
     setPeers((current) => current.filter((item) => item.socketId !== socketId));
   }, []);
 
-  const createPeerConnection = useCallback((member: CallMember) => {
+  const createPeerConnection = useCallback((member: CallMember, shouldOffer = false) => {
     const existing = callPeersRef.current.get(member.socketId);
     if (existing) {
       ensurePeer(member.socketId, member.userId, member.name);
+      existing.shouldOffer = existing.shouldOffer || shouldOffer;
       return existing;
     }
 
@@ -215,6 +218,7 @@ export default function VideoCallPanel({
       ignoreOffer: false,
       isSettingRemoteAnswerPending: false,
       polite: !!localSocketId && localSocketId > member.socketId,
+      shouldOffer,
     };
     callPeersRef.current.set(member.socketId, peer);
 
@@ -229,11 +233,16 @@ export default function VideoCallPanel({
         if (!peer.remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
           peer.remoteStream.addTrack(track);
         }
+        track.onunmute = () => updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Connected' });
+        track.onmute = () => updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Waiting for video' });
+        track.onended = () => updatePeer(member.socketId, { status: 'Video ended' });
       });
       updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Connected' });
     };
 
     pc.onnegotiationneeded = async () => {
+      if (!peer.shouldOffer) return;
+      if (peer.makingOffer) return;
       try {
         peer.makingOffer = true;
         await pc.setLocalDescription();
@@ -279,6 +288,21 @@ export default function VideoCallPanel({
 
     return peer;
   }, [removePeerConnection, sendSignal]);
+
+  const startPeerOffer = useCallback(async (member: CallMember) => {
+    const peer = createPeerConnection(member, true);
+    try {
+      peer.makingOffer = true;
+      await peer.pc.setLocalDescription();
+      if (peer.pc.localDescription) {
+        sendSignal(member.socketId, { type: 'description', description: peer.pc.localDescription });
+      }
+    } catch {
+      updatePeer(member.socketId, { status: 'Could not start video' });
+    } finally {
+      peer.makingOffer = false;
+    }
+  }, [createPeerConnection, sendSignal]);
 
   const unlockAudio = async () => {
     const mediaElements = Array.from(document.querySelectorAll<HTMLMediaElement>('[data-call-media]'));
@@ -368,6 +392,20 @@ export default function VideoCallPanel({
     socket.emit('call:media-state', { roomCode, state: { micOn: isMicOn, camOn: next } });
   };
 
+  const reconnectVideo = () => {
+    callPeersRef.current.forEach((peer) => {
+      if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+      peer.pc.close();
+    });
+    callPeersRef.current.clear();
+    setPeers([]);
+    hasJoinedCallRef.current = false;
+    isJoiningCallRef.current = false;
+    localSocketIdRef.current = socket.id || '';
+    socket.emit('call:leave', { roomCode, userId: currentUser.id });
+    window.setTimeout(() => setCallReconnectKey((value) => value + 1), 100);
+  };
+
   useEffect(() => {
     if (!isInCall) return;
 
@@ -375,7 +413,7 @@ export default function VideoCallPanel({
       if (selfSocketId) localSocketIdRef.current = selfSocketId;
       for (const member of members || []) {
         if (member.userId !== currentUser.id && member.socketId !== localSocketIdRef.current) {
-          createPeerConnection(member);
+          createPeerConnection(member, false);
         }
       }
     };
@@ -428,7 +466,7 @@ export default function VideoCallPanel({
 
     const handleUserJoined = ({ socketId, userId, name }: CallMember) => {
       if (userId === currentUser.id || socketId === localSocketIdRef.current) return;
-      createPeerConnection({ socketId, userId, name });
+      startPeerOffer({ socketId, userId, name });
     };
 
     const handleFull = ({ limit }: { limit: number }) => {
@@ -476,7 +514,7 @@ export default function VideoCallPanel({
         socketId: fromSocketId,
         userId: fromUserId || fromSocketId,
         name: fromName || fromUserId || fromSocketId,
-      });
+      }, false);
       const pc = peer.pc;
 
       try {
@@ -555,7 +593,7 @@ export default function VideoCallPanel({
       socket.off('call:speaking', handleSpeaking);
       socket.off('connect', rebuildCallAfterReconnect);
     };
-  }, [isInCall, currentUser.id, currentUser.name, roomCode, createPeerConnection, removePeerConnection, sendSignal]);
+  }, [isInCall, currentUser.id, currentUser.name, roomCode, createPeerConnection, removePeerConnection, sendSignal, startPeerOffer, callReconnectKey]);
 
   if (!isInCall) {
     return (
@@ -683,6 +721,13 @@ export default function VideoCallPanel({
         >
           <SpeakerIcon />
           Start video playback
+        </button>
+        <button
+          className="button button-secondary"
+          onClick={reconnectVideo}
+          style={{ flex: 1, padding: '9px', fontSize: '0.85rem' }}
+        >
+          Reconnect video
         </button>
       </div>
     </div>
