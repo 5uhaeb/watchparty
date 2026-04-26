@@ -7,7 +7,6 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const registerRoomSocket = require('./socket/roomSocket');
 const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
-const { verifyExtensionToken } = require('./lib/extensionToken');
 const { createAdapterClients, usingMockRedis } = require('./lib/redis');
 
 connectDB();
@@ -18,9 +17,7 @@ const io = new Server(server, {
     origin(origin, callback) {
       if (
         !origin ||
-        origin === process.env.CLIENT_URL ||
-        origin.startsWith('chrome-extension://') ||
-        origin.startsWith('moz-extension://')
+        origin === process.env.CLIENT_URL
       ) {
         callback(null, true);
         return;
@@ -66,13 +63,7 @@ io.use(async (socket, next) => {
 
     const result = await getGuestFromToken(getGuestToken(socket.request, socket.handshake.auth?.token));
     if (!result?.guest) {
-      const extensionClaims = verifyExtensionToken(socket.handshake.auth?.extensionToken);
-      if (!extensionClaims) return next(new Error('JWT auth required'));
-
-      socket.data.guestId = extensionClaims.sub;
-      socket.data.displayName = extensionClaims.name || extensionClaims.sub;
-      socket.data.isExtension = true;
-      return next();
+      return next(new Error('JWT auth required'));
     }
 
     const guest = serializeGuest(result.guest);

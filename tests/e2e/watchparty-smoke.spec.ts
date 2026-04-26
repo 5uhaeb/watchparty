@@ -8,11 +8,7 @@ async function bootstrapGuest(page: Page, expectedNamePattern = /anonymous guest
   await expect(page.getByText(expectedNamePattern)).toBeVisible();
 }
 
-function waitForSocketEvent<T>(socket: Socket, eventName: string) {
-  return new Promise<T>((resolve) => socket.once(eventName, resolve));
-}
-
-test('two users can create, join, chat, sync playback, and hit chat rate limits', async ({ browser }) => {
+test('two users can create, join, chat, and hit chat rate limits', async ({ browser }) => {
   const hostContext = await browser.newContext();
   const guestContext = await browser.newContext();
   const host = await hostContext.newPage();
@@ -23,7 +19,6 @@ test('two users can create, join, chat, sync playback, and hit chat rate limits'
 
   await host.goto('/create-room');
   await host.locator('input[placeholder="e.g. Movie Night"]').fill('E2E Watch Room');
-  await host.locator('select').first().selectOption('ott-sync');
   await host.getByRole('button', { name: /create watch party/i }).click();
   await host.waitForURL(/\/room\/[A-Z0-9]+/);
 
@@ -59,20 +54,11 @@ test('two users can create, join, chat, sync playback, and hit chat rate limits'
   }
   await expect(host.getByText(/message cooldown active/i)).toBeVisible();
 
-  const playEvent = waitForSocketEvent<{ positionSec: number; atServerTs: number }>(observer, 'player:play');
-  await host.getByRole('button', { name: /^Play All$/ }).click();
-  const playPayload = await playEvent;
-  expect(Math.abs(playPayload.positionSec)).toBeLessThanOrEqual(1);
-
   const state = await new Promise<any>((resolve) => {
     observer.emit('player:state', { roomCode }, resolve);
   });
-  expect(state.isPlaying).toBe(true);
-  expect(Math.abs(state.positionSec - playPayload.positionSec)).toBeLessThanOrEqual(1);
-
-  const pauseEvent = waitForSocketEvent<{ positionSec: number; atServerTs: number }>(observer, 'player:pause');
-  await host.getByRole('button', { name: /^Pause All$/ }).click();
-  await expect(pauseEvent).resolves.toMatchObject({ positionSec: expect.any(Number) });
+  expect(state.isPlaying).toBe(false);
+  expect(Math.abs(state.positionSec)).toBeLessThanOrEqual(1);
 
   observer.disconnect();
   await hostContext.close();

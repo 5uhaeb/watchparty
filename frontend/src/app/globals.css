@@ -294,8 +294,7 @@ textarea {
 .content-column,
 .form-stack,
 .chat-panel,
-.player-stack,
-.ott-panel {
+.player-stack {
   display: grid;
   gap: 20px;
 }
@@ -348,27 +347,6 @@ textarea {
   font-size: 0.85rem;
 }
 
-.call-layout-toggle {
-  display: inline-flex;
-  gap: 6px;
-  padding: 4px;
-  background: var(--surface-2);
-  border: var(--outline-thin) solid var(--outline);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-xs);
-}
-
-.call-layout-toggle .button {
-  min-height: 34px;
-  padding: 7px 10px;
-  box-shadow: none;
-  border-width: var(--outline-thin);
-}
-
-.call-layout-toggle .button:hover {
-  box-shadow: var(--shadow-xs);
-}
-
 .container:has(.room-page) {
   max-width: 1360px;
   padding-top: 18px;
@@ -379,12 +357,8 @@ textarea {
   grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
 }
 
-.room-watch-layout.has-call.call-layout-side {
+.room-watch-layout.has-call {
   grid-template-columns: minmax(560px, 1fr) minmax(292px, 330px);
-}
-
-.room-watch-layout.call-layout-overlay {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
 }
 
 .watch-column,
@@ -405,24 +379,6 @@ textarea {
 .watch-stage .local-video-frame {
   aspect-ratio: 16 / 9;
   object-fit: contain;
-}
-
-.call-overlay-panel {
-  position: absolute;
-  right: 14px;
-  bottom: 52px;
-  width: clamp(150px, 18vw, 260px);
-  max-height: min(42vh, calc(100% - 28px));
-  overflow: visible;
-  z-index: 12;
-}
-
-.call-overlay-panel > .card {
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28), var(--shadow-md);
-}
-
-.call-overlay-panel .video-call-grid {
-  grid-template-columns: 1fr !important;
 }
 
 .source-label {
@@ -565,28 +521,6 @@ textarea {
   min-width: 0;
 }
 
-.video-call-card-tiles {
-  padding: 0 !important;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.video-call-card-tiles .video-call-header {
-  display: none !important;
-}
-
-.video-call-card-tiles .video-call-grid {
-  grid-template-columns: 1fr !important;
-  gap: 8px !important;
-  margin: 0 !important;
-}
-
-.video-call-card-tiles .video-call-tile {
-  border: 2px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
-}
-
 .room-page {
   gap: 14px;
   font-size: 0.92rem;
@@ -693,62 +627,6 @@ textarea {
   white-space: nowrap;
 }
 
-.watch-stage:fullscreen {
-  width: 100vw;
-  height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #000;
-}
-
-.watch-stage:fullscreen .player-stack,
-.watch-stage:fullscreen .player-shell,
-.watch-stage:fullscreen .player-frame,
-.watch-stage:fullscreen .local-video-frame {
-  width: 100%;
-  height: 100%;
-  max-height: none;
-}
-
-.watch-stage:fullscreen .player-toolbar {
-  display: none;
-}
-
-.watch-stage:fullscreen .call-overlay-panel {
-  position: fixed;
-  right: 18px;
-  bottom: 58px;
-  width: min(18vw, 260px);
-  max-height: min(42vh, 420px);
-  overflow: visible;
-  z-index: 2147483647;
-}
-
-.watch-stage:fullscreen .call-overlay-panel .video-call-card {
-  padding: 0 !important;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-}
-
-.watch-stage:fullscreen .call-overlay-panel .video-call-header,
-.watch-stage:fullscreen .call-overlay-panel .call-audio-warning,
-.watch-stage:fullscreen .call-overlay-panel .call-audio-controls,
-.watch-stage:fullscreen .call-overlay-panel .video-call-actions {
-  display: none !important;
-}
-
-.watch-stage:fullscreen .call-overlay-panel .video-call-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 8px !important;
-  margin: 0 !important;
-}
-
-.watch-stage:fullscreen .call-overlay-panel .video-call-tile {
-  border: 2px solid rgba(255, 255, 255, 0.78);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.48);
-}
-
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -770,8 +648,7 @@ textarea {
   }
 
   .room-watch-layout,
-  .room-watch-layout.has-call.call-layout-side,
-  .room-watch-layout.call-layout-overlay {
+  .room-watch-layout.has-call {
     grid-template-columns: 1fr;
   }
 
@@ -868,15 +745,6 @@ textarea {
     width: 100% !important;
   }
 
-  .call-layout-toggle {
-    width: 100%;
-  }
-
-  .call-layout-toggle .button {
-    flex: 1 1 0;
-    width: auto !important;
-  }
-
   .chat-form,
   .form-row,
   .tabs-row,
@@ -894,9 +762,7 @@ textarea {
     max-height: 46vh;
   }
 
-  .player-toolbar .button,
-  .ott-panel .button,
-  .ott-panel input {
+  .player-toolbar .button {
     flex: 1 1 100%;
     width: 100%;
   }
@@ -931,29 +797,6 @@ textarea {
 
   .volume-slider-row > span:first-child {
     grid-column: 1 / -1;
-  }
-
-  .call-overlay-panel {
-    position: static;
-    width: 100%;
-    max-height: none;
-    margin-top: 12px;
-  }
-
-  .call-overlay-panel .video-call-grid {
-    grid-template-columns: 1fr !important;
-  }
-
-  .watch-stage:fullscreen .call-overlay-panel {
-    right: 10px;
-    bottom: 10px;
-    width: min(46vw, 190px);
-    max-height: 44vh;
-  }
-
-  .watch-stage:fullscreen .call-overlay-panel .video-call-grid {
-    grid-template-columns: 1fr !important;
-    gap: 6px !important;
   }
 
   .notification-menu {

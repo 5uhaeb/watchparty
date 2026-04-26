@@ -1,6 +1,5 @@
 const Message = require('../models/Message');
 const Room = require('../models/Room');
-const { verifyExtensionToken } = require('../lib/extensionToken');
 const {
   presenceJoin,
   presenceDisconnect,
@@ -62,8 +61,7 @@ function parsePositionSec(positionSec) {
 
 function sanitizeSourceMeta(payload = {}) {
   return {
-    provider: normalizeProvider(payload.provider),
-    sourceType: payload.sourceType === 'ott-sync' ? 'ott-sync' : payload.sourceType,
+    sourceType: payload.sourceType,
     tabUrlHash: typeof payload.tabUrlHash === 'string' ? payload.tabUrlHash.slice(0, 80) : undefined,
     title: typeof payload.title === 'string' ? payload.title.slice(0, 160) : undefined,
     pageUrl: typeof payload.pageUrl === 'string' ? payload.pageUrl.slice(0, 300) : undefined,
@@ -73,17 +71,8 @@ function sanitizeSourceMeta(payload = {}) {
 }
 
 function validateOttPayload(room, payload = {}) {
-  if (payload.sourceType !== 'ott-sync') return { ok: true, meta: sanitizeSourceMeta(payload) };
-
-  if (room?.source?.type !== 'ott-sync') {
-    return { ok: false, message: 'Room source is not OTT sync.' };
-  }
-
-  const provider = normalizeProvider(payload.provider);
-  const roomProvider = normalizeProvider(room.source.provider);
-  if (!provider) return { ok: false, message: 'Missing OTT provider.' };
-  if (roomProvider && roomProvider !== 'ott' && provider !== roomProvider) {
-    return { ok: false, message: `Wrong provider for this room. Expected ${roomProvider}.` };
+  if (payload.sourceType === 'ott-sync' || room?.source?.type === 'ott-sync') {
+    return { ok: false, message: 'OTT sync is disabled.' };
   }
 
   return { ok: true, meta: sanitizeSourceMeta(payload) };
@@ -140,11 +129,7 @@ function normalizeSource(payload, socket) {
   }
 
   if (payload.type === 'ott-sync') {
-    const provider = normalizeProvider(payload.provider) || 'ott';
-    return {
-      type: 'ott-sync',
-      provider,
-    };
+    throw new Error('OTT sync is disabled.');
   }
 
   throw new Error('Unsupported source type');
@@ -238,12 +223,12 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
 
   const ottValidation = validateOttPayload(room, rawPayload);
   if (!ottValidation.ok) {
-    socket.emit('extension:error', { message: ottValidation.message });
+    socket.emit('error:validation', { message: ottValidation.message });
     return;
   }
 
   if (!can(room, actorUserId, 'controlPlayback')) {
-    socket.emit('extension:error', { message: 'You do not have permission to control playback.' });
+    socket.emit('error:validation', { message: 'You do not have permission to control playback.' });
     return;
   }
 
@@ -258,16 +243,6 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
 
   if (eventName === 'player:play' || eventName === 'player:pause') {
     playbackSet['playback.isPlaying'] = isPlaying;
-  }
-
-  if (meta.sourceType === 'ott-sync') {
-    playbackSet['playback.sourceType'] = 'ott-sync';
-    playbackSet['playback.provider'] = meta.provider;
-    if (meta.tabUrlHash) playbackSet['playback.tabUrlHash'] = meta.tabUrlHash;
-    if (meta.title) playbackSet['playback.title'] = meta.title;
-    if (meta.pageUrl) playbackSet['playback.pageUrl'] = meta.pageUrl;
-    if (typeof meta.paused === 'boolean') playbackSet['playback.paused'] = meta.paused;
-    if (typeof meta.playbackRate === 'number') playbackSet['playback.playbackRate'] = meta.playbackRate;
   }
 
   await Room.findOneAndUpdate({ code: targetRoomCode }, { $set: playbackSet });
@@ -385,49 +360,6 @@ function registerRoomSocket(io, socket) {
 
   socket.on('chat:history', async ({ roomCode } = {}) => {
     await emitChatHistory(socket, roomCode);
-  });
-
-  socket.on('extension:join', async ({ roomCode, token }) => {
-    let claims;
-    try {
-      claims = verifyExtensionToken(token);
-    } catch (error) {
-      socket.emit('extension:error', { message: error.message });
-      return;
-    }
-
-    if (!claims) {
-      socket.emit('extension:error', { message: 'Invalid or expired extension token' });
-      return;
-    }
-
-    const room = await Room.findOne({ code: roomCode, isActive: true });
-
-    if (!room) {
-      socket.emit('extension:error', { message: 'Room not found' });
-      return;
-    }
-
-    socket.join(roomCode);
-    socket.roomCode = roomCode;
-    socket.userData = { id: claims.sub, name: claims.name || claims.sub };
-    socket.data.guestId = claims.sub;
-    socket.data.displayName = claims.name || claims.sub;
-    socket.data.isExtension = true;
-    await presenceJoin(io, roomCode, socket);
-
-    const canControlPlayback = can(room, claims.sub, 'controlPlayback');
-    socket.emit('extension:joined', {
-      roomCode,
-      userId: claims.sub,
-      sourceType: room.source?.type,
-      provider: room.source?.provider,
-      canControlPlayback,
-    });
-
-    if (room.source?.type !== 'ott-sync') {
-      socket.emit('extension:error', { message: 'Wrong source selected. Choose OTT sync in the room.' });
-    }
   });
 
   socket.on('player:play', async (payload = {}) => {

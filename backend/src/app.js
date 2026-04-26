@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const extensionRoutes = require('./routes/extensionRoutes');
 const guestRoutes = require('./routes/guestRoutes');
 const roomRoutes = require('./routes/roomRoutes');
 
@@ -12,7 +11,7 @@ app.set('trust proxy', 1);
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (origin === process.env.CLIENT_URL) return true;
-  return origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://');
+  return false;
 }
 
 app.use(cors({
@@ -36,7 +35,6 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
-app.use('/api/extension', extensionRoutes);
 app.use('/api/guest', guestRoutes);
 app.use('/api/rooms', roomRoutes);
 

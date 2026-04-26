@@ -49,11 +49,9 @@ const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
 export default function VideoCallPanel({
   roomCode,
   currentUser,
-  displayMode = 'full',
 }: {
   roomCode: string;
   currentUser: { id: string; name: string };
-  displayMode?: 'full' | 'tiles';
 }) {
   const [isInCall, setIsInCall] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -185,8 +183,11 @@ export default function VideoCallPanel({
     addLocalTracksToPeerConnection(pc);
 
     pc.ontrack = (event) => {
-      const incomingStream = event.streams[0] || peer.remoteStream;
-      incomingStream.getTracks().forEach((track) => {
+      const incomingTracks = event.streams[0]?.getTracks().length
+        ? event.streams[0].getTracks()
+        : [event.track];
+
+      incomingTracks.forEach((track) => {
         if (!peer.remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
           peer.remoteStream.addTrack(track);
         }
@@ -534,10 +535,9 @@ export default function VideoCallPanel({
 
   const totalVideos = peers.length + 1;
   const cols = totalVideos <= 1 ? 1 : totalVideos <= 4 ? 2 : 3;
-  const isTilesOnly = displayMode === 'tiles';
 
   return (
-    <div className={`card glass video-call-card ${isTilesOnly ? 'video-call-card-tiles' : ''}`} style={{ padding: '16px' }}>
+    <div className="card glass video-call-card" style={{ padding: '16px' }}>
       <div className="video-call-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>
           Video Call
@@ -581,13 +581,12 @@ export default function VideoCallPanel({
         ))}
       </div>
 
-      {!isTilesOnly && audioSupportWarning && (
+      {audioSupportWarning && (
         <div className="call-audio-warning" style={{ marginBottom: 12, color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
           {audioSupportWarning}
         </div>
       )}
 
-      {!isTilesOnly && (
       <div className="call-audio-controls" style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
         <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
         <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
@@ -604,9 +603,7 @@ export default function VideoCallPanel({
           onWarning={setAudioSupportWarning}
         />
       </div>
-      )}
 
-      {!isTilesOnly && (
       <div className="video-call-actions">
         <button
           className="button button-secondary"
@@ -633,7 +630,6 @@ export default function VideoCallPanel({
           Start video playback
         </button>
       </div>
-      )}
     </div>
   );
 }

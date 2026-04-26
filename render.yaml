@@ -23,6 +23,6 @@ services:
     dockerContext: ./audio-server
     envVars:
       - key: JANUS_PUBLIC_IP
-        value: 0.0.0.0
+        sync: false
       - key: JANUS_STUN_SERVER
         value: stun:stun.l.google.com:19302

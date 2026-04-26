@@ -4,7 +4,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends janus ca-certificates gettext-base \
   && rm -rf /var/lib/apt/lists/*
 
-COPY janus.jcfg /etc/janus/janus.jcfg
+COPY janus.jcfg /etc/janus/templates/janus.jcfg.template
 COPY janus.transport.websockets.jcfg /etc/janus/templates/janus.transport.websockets.jcfg.template
 COPY janus.plugin.audiobridge.jcfg /etc/janus/janus.plugin.audiobridge.jcfg
 COPY start-render.sh /usr/local/bin/start-janus-render

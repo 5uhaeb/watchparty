@@ -19,6 +19,7 @@ media: {
 nat: {
   stun_server = "stun.l.google.com"
   stun_port = 19302
+  nat_1_1_mapping = "${JANUS_PUBLIC_IP}"
   full_trickle = true
   ice_tcp = true
 

@@ -51,7 +51,6 @@ export default defineConfig({
         CLIENT_URL: baseURL,
         MONGODB_URI: mongoUri,
         GUEST_JWT_SECRET: process.env.GUEST_JWT_SECRET || 'watchparty-e2e-secret',
-        EXTENSION_TOKEN_SECRET: process.env.EXTENSION_TOKEN_SECRET || 'watchparty-extension-token',
       },
     },
     {

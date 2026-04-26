@@ -244,17 +244,6 @@ export default function RoomPlayer({
     socket.emit('player:pause', { roomCode, userId: currentUserId, positionSec });
   };
 
-  const enterFullscreen = async () => {
-    const element = document.querySelector('[data-watch-stage]') || document.querySelector('[data-player-shell]');
-    if (!(element instanceof HTMLElement)) return;
-
-    try {
-      await element.requestFullscreen?.();
-    } catch (err) {
-      console.error('Fullscreen failed', err);
-    }
-  };
-
   if (adapterType === 'localStream' || (isHost && localStreamFile)) {
     return (
       <LocalStreamPlayer
@@ -315,7 +304,14 @@ export default function RoomPlayer({
   }
 
   if (adapterType === 'ott-sync') {
-    return <OttControls roomCode={roomCode} currentUserId={currentUserId} isHost={isHost} provider={sourceData?.provider || 'ott'} />;
+    return (
+      <div className="card glass player-stack" style={{ textAlign: 'center', padding: '40px' }}>
+        <h3 style={{ margin: '0 0 12px' }}>OTT sync is disabled</h3>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+          Pick a YouTube link or local file to keep using this room.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -326,9 +322,6 @@ export default function RoomPlayer({
             Sync Now
           </button>
         )}
-        <button onClick={enterFullscreen} style={{ padding: '8px 14px' }}>
-          Full Screen
-        </button>
       </div>
 
       {localFileName && (
@@ -353,157 +346,6 @@ export default function RoomPlayer({
             onError={(error) => console.error('Local player error', error)}
           />
         )}
-      </div>
-    </div>
-  );
-}
-
-function OttControls({
-  roomCode,
-  currentUserId,
-  isHost = false,
-  provider = 'ott',
-}: {
-  roomCode: string;
-  currentUserId?: string;
-  isHost?: boolean;
-  provider?: string;
-}) {
-  const [time, setTime] = useState('0');
-  const [isPlaying, setIsPlaying] = useState(false);
-  const startedAtRef = useRef<number | null>(null);
-  const startedPositionRef = useRef(0);
-
-  const applyState = useCallback((playing: boolean, positionSec: number, serverTs?: number) => {
-    const latencySec = playing && serverTs ? Math.max(0, (Date.now() - serverTs) / 1000) : 0;
-    const nextPosition = Math.max(0, positionSec + latencySec);
-
-    setIsPlaying(playing);
-    setTime(nextPosition.toFixed(1));
-    startedPositionRef.current = nextPosition;
-    startedAtRef.current = playing ? Date.now() : null;
-  }, []);
-
-  useEffect(() => {
-    const onPlay = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
-      applyState(true, Number(positionSec || 0), atServerTs);
-    };
-    const onPause = ({ positionSec }: { positionSec: number }) => {
-      applyState(false, Number(positionSec || 0));
-    };
-    const onSeek = ({ positionSec }: { positionSec: number }) => {
-      applyState(isPlaying, Number(positionSec || 0));
-    };
-    const onHeartbeat = ({ positionSec, atServerTs }: { positionSec: number; atServerTs?: number }) => {
-      if (!isPlaying) return;
-      const latencySec = atServerTs ? Math.max(0, (Date.now() - atServerTs) / 1000) : 0;
-      const target = Number(positionSec || 0) + latencySec;
-      const local = Number(time) || 0;
-      if (Math.abs(target - local) > 1.5) applyState(true, Number(positionSec || 0), atServerTs);
-    };
-    const onPlayerState = (state: { isPlaying: boolean; positionSec: number; serverTs?: number }) => {
-      applyState(state.isPlaying, Number(state.positionSec || 0), state.serverTs);
-    };
-
-    socket.on('player:play', onPlay);
-    socket.on('player:pause', onPause);
-    socket.on('player:seek', onSeek);
-    socket.on('player:heartbeat', onHeartbeat);
-    socket.on('player:state', onPlayerState);
-
-    socket.emit('player:state', { roomCode });
-
-    return () => {
-      socket.off('player:play', onPlay);
-      socket.off('player:pause', onPause);
-      socket.off('player:seek', onSeek);
-      socket.off('player:heartbeat', onHeartbeat);
-      socket.off('player:state', onPlayerState);
-    };
-  }, [applyState, isPlaying, roomCode, time]);
-
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    const intervalId = window.setInterval(() => {
-      if (!startedAtRef.current) return;
-      const elapsed = (Date.now() - startedAtRef.current) / 1000;
-      setTime((startedPositionRef.current + elapsed).toFixed(1));
-    }, 500);
-
-    return () => window.clearInterval(intervalId);
-  }, [isPlaying]);
-
-  useEffect(() => {
-    if (!isHost || !isPlaying) return;
-
-    const intervalId = window.setInterval(() => {
-      socket.emit('player:heartbeat', {
-        roomCode,
-        sourceType: 'ott-sync',
-        provider,
-        positionSec: parseFloat(time) || 0,
-      });
-    }, 3000);
-
-    return () => window.clearInterval(intervalId);
-  }, [isHost, isPlaying, provider, roomCode, time]);
-
-  const broadcast = (isPlaying: boolean) => {
-    const positionSec = parseFloat(time) || 0;
-    applyState(isPlaying, positionSec);
-    socket.emit(isPlaying ? 'player:play' : 'player:pause', {
-      roomCode,
-      userId: currentUserId,
-      sourceType: 'ott-sync',
-      provider,
-      positionSec,
-    });
-  };
-
-  const broadcastSeek = () => {
-    const positionSec = parseFloat(time) || 0;
-    applyState(isPlaying, positionSec);
-    socket.emit('player:seek', {
-      roomCode,
-      userId: currentUserId,
-      sourceType: 'ott-sync',
-      provider,
-      positionSec,
-    });
-  };
-
-  return (
-    <div className="ott-panel">
-      <h3>OTT Sync Mode</h3>
-      <p>
-        Open the same Netflix, Prime, or Hotstar/JioHotstar title in another tab.
-        Everyone needs their own subscription. The extension syncs playback only.
-      </p>
-
-      <div className="player-toolbar">
-        <input
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-          placeholder="Time (seconds)"
-          className="input"
-          style={{ width: 140 }}
-        />
-        <button onClick={() => broadcast(true)} style={{ padding: '8px 20px' }}>
-          Play All
-        </button>
-        <button
-          onClick={() => broadcast(false)}
-          style={{ padding: '8px 20px' }}
-        >
-          Pause All
-        </button>
-        <button onClick={broadcastSeek} style={{ padding: '8px 20px' }}>
-          Seek All
-        </button>
-      </div>
-      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-        OTT status: {isPlaying ? 'Playing' : 'Paused'} at {time || '0'}s
       </div>
     </div>
   );

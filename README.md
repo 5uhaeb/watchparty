@@ -16,18 +16,7 @@ This starter supports:
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
 - anonymous guest identity with a signed httpOnly cookie
 
-For Netflix, Prime Video, and Hotstar/JioHotstar, this project is designed for **sync only**. It does not capture, download, decrypt, bypass DRM, or rebroadcast protected streams. Use the included browser extension so each participant can open the same subscribed title or IPL match in their own OTT tab while WatchParty syncs playback controls.
-
-## OTT sync flow
-
-1. Create or join a room.
-2. Choose **Change Source** -> **OTT / Hotstar** and select Netflix, Prime Video, Hotstar/JioHotstar, or any supported OTT.
-3. Load the unpacked extension from `extension/`.
-4. In the extension popup, enter the backend Socket.IO URL, web app URL, room code, and short-lived extension token.
-5. Each participant opens the same OTT title or IPL match in their own logged-in tab.
-6. The host controls playback by default. Room admins can switch playback permission to guests when everyone should be allowed to control.
-
-If an OTT tab does not detect video, start playback once, close preview/trailer overlays, and reload the OTT tab. If the popup reports the wrong provider, change the room source provider or open the matching OTT tab.
+OTT/browser-extension sync is disabled. The current focus is the in-room video call, local streaming, and Janus room audio.
 
 ## Local file streaming
 
@@ -48,7 +37,7 @@ Without TURN, local streaming and camera calls can fail across stricter NATs or 
 
 ## Room audio mixing
 
-WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, the root `Dockerfile` runs the Node backend and Janus in the same web service, with nginx routing `/janus` to Janus internally.
+WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, `render.yaml` deploys a separate `watchparty-janus-audio` Docker service and the frontend connects to its `/janus` WebSocket path.
 
 The frontend requires the Janus WebSocket URL:
 
@@ -102,7 +91,6 @@ CLIENT_URL=http://localhost:3000
 MONGODB_URI=your_mongodb_atlas_uri
 REDIS_URL=redis://localhost:6379
 GUEST_JWT_SECRET=replace_me
-EXTENSION_TOKEN_SECRET=replace_me
 ```
 
 `REDIS_URL` stores live room presence only. Presence is intentionally transient:
@@ -126,14 +114,12 @@ NEXT_PUBLIC_TURN_CRED=
 NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 ```
 
-The extension itself only receives the short-lived token returned by the web app token route. The token route forwards your anonymous guest cookie to the backend and does not expose `EXTENSION_TOKEN_SECRET`.
-
 ## Vercel + Render deployment
 - Deploy `frontend/` to Vercel
 - Deploy the root `render.yaml` Blueprint to Render
-- Render creates one Docker web service named `watchparty`
+- Render creates the Node service named `watchparty` and the Janus service named `watchparty-janus-audio`
 - Point the frontend API/socket env vars to the Render backend URL
-- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the same Render URL with `/janus`, for example `wss://watchparty-6a3e.onrender.com/janus`
+- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the Janus service URL with `/janus`, for example `wss://watchparty-janus-audio.onrender.com/janus`
 - Allow CORS for the frontend URL in backend env
 
 ## What is included
@@ -148,5 +134,4 @@ The extension itself only receives the short-lived token returned by the web app
 - host-only controls
 - persistent chat storage
 - YouTube iframe sync adapter
-- browser extension hardening for more OTT player edge cases
 - optional accounts
