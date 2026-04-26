@@ -28,12 +28,12 @@ For WebRTC networking, the frontend reads:
 
 ```env
 NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URLS=
-NEXT_PUBLIC_TURN_USER=
-NEXT_PUBLIC_TURN_CRED=
+NEXT_PUBLIC_TURN_URLS=turn:your-turn-host:3478,turns:your-turn-host:5349?transport=tcp
+NEXT_PUBLIC_TURN_USER=your_turn_username
+NEXT_PUBLIC_TURN_CRED=your_turn_password
 ```
 
-Without TURN, local streaming and camera calls can fail across stricter NATs or mobile networks. Set TURN credentials for cross-network rooms, such as a laptop on WiFi streaming to a phone on 4G. `NEXT_PUBLIC_TURN_URLS` accepts comma-separated URLs, for example UDP and TCP relay URLs from the same provider.
+Without real TURN, local streaming and camera calls will often work only on the same WiFi network and fail across mobile data, different routers, CGNAT, school/office networks, or strict firewalls. Set TURN credentials in Vercel for cross-network rooms. `NEXT_PUBLIC_TURN_URLS` accepts comma-separated URLs, for example UDP and TCP/TLS relay URLs from the same provider. `NEXT_PUBLIC_TURN_USERNAME` / `NEXT_PUBLIC_TURN_PASSWORD` are also accepted aliases.
 
 ## Room audio mixing
 
@@ -108,9 +108,9 @@ reconnect after a backend restart.
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URLS=
-NEXT_PUBLIC_TURN_USER=
-NEXT_PUBLIC_TURN_CRED=
+NEXT_PUBLIC_TURN_URLS=turn:your-turn-host:3478,turns:your-turn-host:5349?transport=tcp
+NEXT_PUBLIC_TURN_USER=your_turn_username
+NEXT_PUBLIC_TURN_CRED=your_turn_password
 NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
 ```
 

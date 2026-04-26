@@ -81,6 +81,7 @@ export default function VideoCallPanel({
   const [advancedAudio, setAdvancedAudio] = useState(false);
   const [permissionIssue, setPermissionIssue] = useState<MediaPermissionIssue | null>(null);
   const [callReconnectKey, setCallReconnectKey] = useState(0);
+  const [networkWarning, setNetworkWarning] = useState('');
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -264,12 +265,14 @@ export default function VideoCallPanel({
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         updatePeer(member.socketId, { status: 'Connected' });
+        setNetworkWarning('');
         if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
       }
       if (pc.connectionState === 'connecting') updatePeer(member.socketId, { status: 'Connecting' });
       if (pc.connectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
       if (pc.connectionState === 'failed') {
-        updatePeer(member.socketId, { status: 'Retrying connection' });
+        updatePeer(member.socketId, { status: 'TURN relay needed' });
+        setNetworkWarning('Video works on the same WiFi but fails across networks when no working TURN relay is configured. Add TURN credentials in Vercel, then redeploy.');
         peer.restartTimer = window.setTimeout(() => {
           if (pc.connectionState !== 'closed') pc.restartIce?.();
         }, 500);
@@ -280,10 +283,14 @@ export default function VideoCallPanel({
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         updatePeer(member.socketId, { status: 'Connected' });
+        setNetworkWarning('');
       }
       if (pc.iceConnectionState === 'checking') updatePeer(member.socketId, { status: 'Connecting' });
       if (pc.iceConnectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
-      if (pc.iceConnectionState === 'failed') updatePeer(member.socketId, { status: 'Retrying relay' });
+      if (pc.iceConnectionState === 'failed') {
+        updatePeer(member.socketId, { status: 'TURN relay needed' });
+        setNetworkWarning('Video works on the same WiFi but fails across networks when no working TURN relay is configured. Add TURN credentials in Vercel, then redeploy.');
+      }
     };
 
     return peer;
@@ -680,6 +687,11 @@ export default function VideoCallPanel({
       )}
 
       <div className="call-audio-controls" style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+        {networkWarning && (
+          <div style={{ color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
+            {networkWarning}
+          </div>
+        )}
         <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
         <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
         <VolumeSlider label="Room output" value={mixedRoomVolume} onChange={setMixedRoomVolume} />

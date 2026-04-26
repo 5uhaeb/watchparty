@@ -1,5 +1,8 @@
 export function getIceServers(): RTCIceServer[] {
-  const stunUrls = (process.env.NEXT_PUBLIC_STUN_URLS || 'stun:stun.l.google.com:19302')
+  const stunUrls = (
+    process.env.NEXT_PUBLIC_STUN_URLS ||
+    'stun:stun.l.google.com:19302,stun:global.stun.twilio.com:3478'
+  )
     .split(',')
     .map((url) => url.trim())
     .filter(Boolean);
@@ -15,11 +18,20 @@ export function getIceServers(): RTCIceServer[] {
     .map((url) => url.trim())
     .filter(Boolean) || [];
 
+  const turnUsername =
+    process.env.NEXT_PUBLIC_TURN_USER ||
+    process.env.NEXT_PUBLIC_TURN_USERNAME ||
+    undefined;
+  const turnCredential =
+    process.env.NEXT_PUBLIC_TURN_CRED ||
+    process.env.NEXT_PUBLIC_TURN_PASSWORD ||
+    undefined;
+
   if (configuredTurnUrls.length) {
     servers.push({
       urls: configuredTurnUrls,
-      username: process.env.NEXT_PUBLIC_TURN_USER || undefined,
-      credential: process.env.NEXT_PUBLIC_TURN_CRED || undefined,
+      username: turnUsername,
+      credential: turnCredential,
     });
   } else {
     servers.push({
@@ -27,6 +39,7 @@ export function getIceServers(): RTCIceServer[] {
         'turn:openrelay.metered.ca:80',
         'turn:openrelay.metered.ca:443',
         'turn:openrelay.metered.ca:443?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp',
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject',
