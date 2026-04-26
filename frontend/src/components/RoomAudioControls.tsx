@@ -13,6 +13,7 @@ type Props = {
   micVolume: number;
   mediaVolume: number;
   mixedVolume: number;
+  publishMediaAudio?: boolean;
   onWarning?: (message: string) => void;
 };
 
@@ -25,6 +26,7 @@ export default function RoomAudioControls({
   micVolume,
   mediaVolume,
   mixedVolume,
+  publishMediaAudio = false,
   onWarning,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -98,6 +100,13 @@ export default function RoomAudioControls({
       const bridge = bridgeRef.current;
       if (!bridge) return;
 
+      if (!publishMediaAudio) {
+        bridge.unpublishMediaAudio().catch(() => null);
+        lastMediaTrackIdsRef.current = '';
+        setMediaStatus('');
+        return;
+      }
+
       const result = captureWatchMediaAudio(findWatchMediaElement());
       if (result.ok === false) {
         const reason = result.reason;
@@ -128,7 +137,7 @@ export default function RoomAudioControls({
     publishCurrentMedia();
     const intervalId = window.setInterval(publishCurrentMedia, 2500);
     return () => window.clearInterval(intervalId);
-  }, [isActive, mediaVolume]);
+  }, [isActive, mediaVolume, publishMediaAudio]);
 
   const unlockAudio = async () => {
     await bridgeRef.current?.resume();
@@ -139,7 +148,7 @@ export default function RoomAudioControls({
     <div className="room-audio-controls" style={{ display: 'grid', gap: 10 }}>
       <audio ref={audioRef} autoPlay playsInline />
       <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.4 }}>
-        Call and watch audio are mixed through the room audio server. Headphones are recommended to reduce echo.
+        Call audio is mixed through the room audio server. The room host publishes watch audio when the browser can capture it.
       </div>
       {captureUnsupported && (
         <div style={{ color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>

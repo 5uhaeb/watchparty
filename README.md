@@ -37,18 +37,18 @@ Without TURN, local streaming and camera calls can fail across stricter NATs or 
 
 ## Room audio mixing
 
-WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, `render.yaml` deploys a separate `watchparty-janus-audio` Docker service and the frontend connects to its `/janus` WebSocket path.
+WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, `render.yaml` deploys a separate `watchparty-janus-audio` Docker service and the frontend connects to the service WebSocket root. Janus uses `/janus` for HTTP transport, but not for WebSockets.
 
 The frontend requires the Janus WebSocket URL:
 
 ```env
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
 ```
 
 For Render, set it to the deployed Janus audio service URL:
 
 ```env
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-render-backend-url/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-janus-render-url
 ```
 
 If this value is missing or the Janus service is not running, camera video can still connect, but mixed room audio will not work.
@@ -111,7 +111,7 @@ NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
 NEXT_PUBLIC_TURN_URLS=
 NEXT_PUBLIC_TURN_USER=
 NEXT_PUBLIC_TURN_CRED=
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
 ```
 
 ## Vercel + Render deployment
@@ -119,7 +119,7 @@ NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
 - Deploy the root `render.yaml` Blueprint to Render
 - Render creates the Node service named `watchparty` and the Janus service named `watchparty-janus-audio`
 - Point the frontend API/socket env vars to the Render backend URL
-- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the Janus service URL with `/janus`, for example `wss://watchparty-janus-audio.onrender.com/janus`
+- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the Janus service WebSocket URL without `/janus`, for example `wss://watchparty-janus-audio.onrender.com`
 - Allow CORS for the frontend URL in backend env
 
 ## What is included

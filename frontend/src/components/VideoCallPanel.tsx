@@ -49,9 +49,11 @@ const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
 export default function VideoCallPanel({
   roomCode,
   currentUser,
+  publishMediaAudio = false,
 }: {
   roomCode: string;
   currentUser: { id: string; name: string };
+  publishMediaAudio?: boolean;
 }) {
   const [isInCall, setIsInCall] = useState(false);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -600,6 +602,7 @@ export default function VideoCallPanel({
           micVolume={micVolume}
           mediaVolume={mediaVolume}
           mixedVolume={mixedRoomVolume}
+          publishMediaAudio={publishMediaAudio}
           onWarning={setAudioSupportWarning}
         />
       </div>

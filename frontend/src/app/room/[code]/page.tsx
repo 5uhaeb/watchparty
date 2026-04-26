@@ -609,6 +609,7 @@ export default function RoomPage() {
             <VideoCallPanel
               roomCode={code}
               currentUser={{ id: guestId || userName, name: userName }}
+              publishMediaAudio={isHost || isLocalStreamer}
             />
           )}
 

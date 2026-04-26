@@ -12,14 +12,14 @@ docker compose up --build
 Janus WebSocket URL:
 
 ```bash
-ws://localhost:8188/janus
+ws://localhost:8188
 ```
 
 Frontend env:
 
 ```bash
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
-VITE_AUDIO_SERVER_WS_URL=ws://localhost:8188/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
+VITE_AUDIO_SERVER_WS_URL=ws://localhost:8188
 ```
 
 Then run the app, open two browser windows, join the same room, start the call, play media, and verify mic audio plus capturable watch-player audio are heard from the mixed room output.
@@ -27,12 +27,12 @@ Then run the app, open two browser windows, join the same room, start the call, 
 ## Render Deployment
 
 1. Use the repository root `render.yaml` Blueprint.
-2. Render will deploy one Docker web service named `watchparty`.
-3. nginx inside that service proxies `/janus` to Janus and everything else to the Node backend.
+2. Render will deploy one Docker web service named `watchparty` and one Docker web service named `watchparty-janus-audio`.
+3. The Janus audio service exposes the WebSocket transport at the service root. Janus uses `/janus` for HTTP transport, but WebSockets do not include that path.
 4. Set the frontend variable:
 
 ```bash
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-render-backend-url/janus
+NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-janus-render-url
 ```
 
 The user request mentions `VITE_AUDIO_SERVER_WS_URL`; this repo is a Next.js app, so `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` is the variable that is exposed to browser code. The client also checks `VITE_AUDIO_SERVER_WS_URL` for Vite-compatible builds.
@@ -47,7 +47,7 @@ The user request mentions `VITE_AUDIO_SERVER_WS_URL`; this repo is a Next.js app
 
 ## Ports
 
-- `8188/tcp`: Janus WebSocket transport at `/janus`
+- `8188/tcp`: Janus WebSocket transport
 - `20000-20100/udp`: local WebRTC RTP/RTCP media range
 
 Render may not expose arbitrary UDP media ports the same way Docker Compose does. For Render deployments, plan for TURN relay support.

@@ -33,8 +33,8 @@ type JanusAudioBridgeOptions = {
 };
 
 const AUDIOBRIDGE_PLUGIN = 'janus.plugin.audiobridge';
-const OPUS_BITRATE = 128000;
-const PRODUCTION_AUDIO_SERVER_WS_URL = 'wss://watchparty-janus-audio.onrender.com/janus';
+const OPUS_BITRATE = 256000;
+const PRODUCTION_AUDIO_SERVER_WS_URL = 'wss://watchparty-janus-audio.onrender.com';
 
 export function getAudioServerWsUrl() {
   const configuredUrl = (
@@ -46,8 +46,8 @@ export function getAudioServerWsUrl() {
   if (typeof window === 'undefined') return configuredUrl;
 
   const appIsLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-  const localJanusUrl = 'ws://localhost:8188/janus';
-  const sameOriginUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/janus`;
+  const localJanusUrl = 'ws://localhost:8188';
+  const sameOriginUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
   if (!configuredUrl) return appIsLocal ? localJanusUrl : PRODUCTION_AUDIO_SERVER_WS_URL;
 
   try {
@@ -55,7 +55,7 @@ export function getAudioServerWsUrl() {
     const targetIsLocal = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
 
     if (!appIsLocal && targetIsLocal) return sameOriginUrl;
-    if (parsed.pathname === '/' || parsed.pathname === '') parsed.pathname = '/janus';
+    if (parsed.hostname.includes('janus') && parsed.pathname === '/janus') parsed.pathname = '/';
     if (parsed.protocol === 'http:') return parsed.href.replace(/^http:/, 'ws:');
     if (parsed.protocol === 'https:') return parsed.href.replace(/^https:/, 'wss:');
   } catch {
@@ -195,6 +195,21 @@ export class JanusAudioBridgeClient {
   }
 
   private async openSocket(url: string) {
+    const candidates = getJanusWebSocketCandidates(url);
+    let lastError: Error | null = null;
+
+    for (const candidate of candidates) {
+      try {
+        return await this.openSocketCandidate(candidate);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Could not connect to the Janus room audio server.');
+      }
+    }
+
+    throw lastError || new Error('Could not connect to the Janus room audio server.');
+  }
+
+  private async openSocketCandidate(url: string) {
     return new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(url, 'janus-protocol');
       const timer = window.setTimeout(() => reject(new Error('Janus WebSocket connection timed out.')), 10000);
@@ -437,6 +452,30 @@ export class JanusAudioBridgeClient {
   private status(message: string) {
     this.onStatus?.(message);
   }
+}
+
+function getJanusWebSocketCandidates(rawUrl: string) {
+  const candidates = new Set<string>();
+  candidates.add(rawUrl);
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+
+    if (parsed.pathname === '/janus') {
+      parsed.pathname = '/';
+      candidates.add(parsed.href);
+    } else if (parsed.pathname === '/' || parsed.pathname === '') {
+      const withJanusPath = new URL(parsed.href);
+      withJanusPath.pathname = '/janus';
+      candidates.add(withJanusPath.href);
+    }
+  } catch {
+    // Keep the caller supplied URL as the only candidate.
+  }
+
+  return Array.from(candidates);
 }
 
 function preferOpus(transceiver: RTCRtpTransceiver) {
