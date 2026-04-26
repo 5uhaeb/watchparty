@@ -52,6 +52,7 @@ export default function VideoCallPanel({
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
+  const hasJoinedCallRef = useRef(false);
 
   useEffect(() => {
     peersStateRef.current = peers;
@@ -191,11 +192,6 @@ export default function VideoCallPanel({
       localStreamRef.current = stream;
       setMicrophoneStream(new MediaStream(localCameraStream.getAudioTracks()));
       setIsInCall(true);
-      socket.emit('call:join', {
-        roomCode,
-        userId: currentUser.id,
-        name: currentUser.name
-      });
     } catch {
       setCallError('Could not access camera/microphone. Check browser permissions.');
     }
@@ -213,6 +209,7 @@ export default function VideoCallPanel({
     pcsRef.current.forEach((pc) => pc.close());
     pcsRef.current.clear();
     localStreamRef.current = null;
+    hasJoinedCallRef.current = false;
     setMicrophoneStream(null);
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setPeers([]);
@@ -343,7 +340,19 @@ export default function VideoCallPanel({
     socket.on('call:media-state', handleMediaState);
     socket.on('call:speaking', handleSpeaking);
 
+    const joinTimer = window.setTimeout(() => {
+      if (!hasJoinedCallRef.current) {
+        hasJoinedCallRef.current = true;
+        socket.emit('call:join', {
+          roomCode,
+          userId: currentUser.id,
+          name: currentUser.name
+        });
+      }
+    }, 0);
+
     return () => {
+      window.clearTimeout(joinTimer);
       socket.off('call:members', handleMembers);
       socket.off('call:full', handleFull);
       socket.off('call:user-joined', handleUserJoined);
@@ -354,7 +363,7 @@ export default function VideoCallPanel({
       socket.off('call:media-state', handleMediaState);
       socket.off('call:speaking', handleSpeaking);
     };
-  }, [isInCall, currentUser.id, roomCode]);
+  }, [isInCall, currentUser.id, currentUser.name, roomCode]);
 
   if (!isInCall) {
     return (
