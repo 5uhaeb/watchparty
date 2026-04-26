@@ -30,6 +30,7 @@ type JanusAudioBridgeOptions = {
   onMixedStream?: (stream: MediaStream) => void;
   onWarning?: (message: string) => void;
   onStatus?: (message: string) => void;
+  onDisconnect?: () => void;
 };
 
 const AUDIOBRIDGE_PLUGIN = 'janus.plugin.audiobridge';
@@ -90,6 +91,7 @@ export class JanusAudioBridgeClient {
   private readonly onMixedStream?: (stream: MediaStream) => void;
   private readonly onWarning?: (message: string) => void;
   private readonly onStatus?: (message: string) => void;
+  private readonly onDisconnect?: () => void;
 
   constructor(options: JanusAudioBridgeOptions) {
     this.wsUrl = options.wsUrl || getAudioServerWsUrl();
@@ -99,6 +101,7 @@ export class JanusAudioBridgeClient {
     this.onMixedStream = options.onMixedStream;
     this.onWarning = options.onWarning;
     this.onStatus = options.onStatus;
+    this.onDisconnect = options.onDisconnect;
   }
 
   async connect(microphoneStream: MediaStream) {
@@ -195,23 +198,8 @@ export class JanusAudioBridgeClient {
   }
 
   private async openSocket(url: string) {
-    const candidates = getJanusWebSocketCandidates(url);
-    let lastError: Error | null = null;
-
-    for (const candidate of candidates) {
-      try {
-        return await this.openSocketCandidate(candidate);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error('Could not connect to the Janus room audio server.');
-      }
-    }
-
-    throw lastError || new Error('Could not connect to the Janus room audio server.');
-  }
-
-  private async openSocketCandidate(url: string) {
     return new Promise<WebSocket>((resolve, reject) => {
-      const ws = new WebSocket(url, 'janus-protocol');
+      const ws = new WebSocket(normalizeJanusWebSocketUrl(url), 'janus-protocol');
       const timer = window.setTimeout(() => reject(new Error('Janus WebSocket connection timed out.')), 10000);
 
       ws.onopen = () => {
@@ -221,6 +209,7 @@ export class JanusAudioBridgeClient {
         ws.onclose = () => {
           this.connected = false;
           this.status('Room audio server disconnected.');
+          this.onDisconnect?.();
         };
         resolve(ws);
       };
@@ -454,30 +443,6 @@ export class JanusAudioBridgeClient {
   }
 }
 
-function getJanusWebSocketCandidates(rawUrl: string) {
-  const candidates = new Set<string>();
-  candidates.add(rawUrl);
-
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
-    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
-
-    if (parsed.pathname === '/janus') {
-      parsed.pathname = '/';
-      candidates.add(parsed.href);
-    } else if (parsed.pathname === '/' || parsed.pathname === '') {
-      const withJanusPath = new URL(parsed.href);
-      withJanusPath.pathname = '/janus';
-      candidates.add(withJanusPath.href);
-    }
-  } catch {
-    // Keep the caller supplied URL as the only candidate.
-  }
-
-  return Array.from(candidates);
-}
-
 function preferOpus(transceiver: RTCRtpTransceiver) {
   const capabilities = RTCRtpSender.getCapabilities?.('audio');
   const codecs = capabilities?.codecs;
@@ -500,6 +465,18 @@ function enhanceOpusSdp(sdp: string) {
 
 function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function normalizeJanusWebSocketUrl(rawUrl: string) {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+    if (parsed.hostname.includes('janus') && parsed.pathname === '/janus') parsed.pathname = '/';
+    return parsed.href;
+  } catch {
+    return rawUrl;
+  }
 }
 
 function clampVolume(value: number) {

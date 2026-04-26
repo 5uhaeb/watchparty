@@ -32,13 +32,30 @@ export default function RoomAudioControls({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bridgeRef = useRef<JanusAudioBridgeClient | null>(null);
   const lastMediaTrackIdsRef = useRef('');
+  const retryTimerRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
   const [status, setStatus] = useState('');
   const [mediaStatus, setMediaStatus] = useState('');
   const [captureUnsupported, setCaptureUnsupported] = useState(false);
+  const [reconnectKey, setReconnectKey] = useState(0);
 
   useEffect(() => {
     if (!isActive || !microphoneStream) return;
     let cancelled = false;
+    let connected = false;
+
+    const scheduleReconnect = (reason: string) => {
+      if (cancelled) return;
+      if (retryTimerRef.current !== null) return;
+      const attempt = reconnectAttemptsRef.current + 1;
+      reconnectAttemptsRef.current = attempt;
+      const delayMs = Math.min(30000, 1500 * attempt);
+      setStatus(`${reason} Reconnecting room audio in ${Math.round(delayMs / 1000)}s.`);
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        setReconnectKey((value) => value + 1);
+      }, delayMs);
+    };
 
     const bridge = new JanusAudioBridgeClient({
       roomId: roomCode,
@@ -47,6 +64,9 @@ export default function RoomAudioControls({
       wsUrl: getAudioServerWsUrl(),
       onWarning,
       onStatus: setStatus,
+      onDisconnect: () => {
+        if (connected) scheduleReconnect('Room audio disconnected.');
+      },
       onMixedStream: (stream) => {
         if (!audioRef.current) return;
         audioRef.current.srcObject = stream;
@@ -61,21 +81,29 @@ export default function RoomAudioControls({
     bridge.connect(microphoneStream)
       .then(() => {
         if (cancelled) return;
+        connected = true;
+        reconnectAttemptsRef.current = 0;
         bridge.setMicVolume(micVolume);
         bridge.setMicEnabled(isMicEnabled);
       })
       .catch((error) => {
-        onWarning?.(error instanceof Error ? error.message : 'Could not connect to room audio server.');
+        const message = error instanceof Error ? error.message : 'Could not connect to room audio server.';
+        onWarning?.(message);
+        scheduleReconnect(message);
       });
 
     return () => {
       cancelled = true;
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       bridge.disconnect().catch(() => null);
       bridgeRef.current = null;
       lastMediaTrackIdsRef.current = '';
       if (audioRef.current) audioRef.current.srcObject = null;
     };
-  }, [currentUser.id, currentUser.name, isActive, microphoneStream, onWarning, roomCode]);
+  }, [currentUser.id, currentUser.name, isActive, microphoneStream, onWarning, reconnectKey, roomCode]);
 
   useEffect(() => {
     bridgeRef.current?.setMicVolume(micVolume);
@@ -144,6 +172,18 @@ export default function RoomAudioControls({
     await audioRef.current?.play().catch(() => null);
   };
 
+  const reconnectAudio = async () => {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    await bridgeRef.current?.disconnect().catch(() => null);
+    bridgeRef.current = null;
+    lastMediaTrackIdsRef.current = '';
+    setStatus('Reconnecting room audio...');
+    setReconnectKey((value) => value + 1);
+  };
+
   return (
     <div className="room-audio-controls" style={{ display: 'grid', gap: 10 }}>
       <audio ref={audioRef} autoPlay playsInline />
@@ -162,6 +202,9 @@ export default function RoomAudioControls({
       )}
       <button className="button button-secondary" onClick={unlockAudio} style={{ padding: '9px', fontSize: '0.85rem' }}>
         Enable room audio
+      </button>
+      <button className="button button-secondary" onClick={reconnectAudio} style={{ padding: '9px', fontSize: '0.85rem' }}>
+        Reconnect room audio
       </button>
     </div>
   );
