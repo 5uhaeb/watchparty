@@ -35,6 +35,17 @@ type CallSignal =
   | { type: 'description'; description: RTCSessionDescriptionInit }
   | { type: 'candidate'; candidate: RTCIceCandidateInit };
 
+type MediaPermissionState = PermissionState | 'unsupported' | 'missing';
+
+type MediaPermissionIssue = {
+  title: string;
+  message: string;
+  camera: MediaPermissionState;
+  microphone: MediaPermissionState;
+  browserSettingsUrl?: string;
+  steps: string[];
+};
+
 const MAX_CALL_USERS = 10;
 
 const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
@@ -67,6 +78,7 @@ export default function VideoCallPanel({
   const [mediaVolume, setMediaVolume] = useState(1);
   const [mixedRoomVolume, setMixedRoomVolume] = useState(1);
   const [advancedAudio, setAdvancedAudio] = useState(false);
+  const [permissionIssue, setPermissionIssue] = useState<MediaPermissionIssue | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -80,6 +92,30 @@ export default function VideoCallPanel({
   useEffect(() => {
     peersStateRef.current = peers;
   }, [peers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cleanupHandlers: Array<() => void> = [];
+
+    const refreshPermissions = async () => {
+      const issue = await detectMediaPermissionIssue();
+      if (!cancelled) setPermissionIssue(issue);
+    };
+
+    refreshPermissions();
+
+    watchPermission('camera', refreshPermissions).then((cleanup) => {
+      if (cleanup) cleanupHandlers.push(cleanup);
+    });
+    watchPermission('microphone', refreshPermissions).then((cleanup) => {
+      if (cleanup) cleanupHandlers.push(cleanup);
+    });
+
+    return () => {
+      cancelled = true;
+      cleanupHandlers.forEach((cleanup) => cleanup());
+    };
+  }, []);
 
   const updatePeer = (socketId: string, patch: Partial<PeerState>) => {
     setPeers((current) =>
@@ -253,6 +289,13 @@ export default function VideoCallPanel({
     try {
       setCallError('');
       setAudioSupportWarning('');
+      const preflightIssue = await detectMediaPermissionIssue();
+      setPermissionIssue(preflightIssue);
+      if (preflightIssue?.camera === 'denied' || preflightIssue?.microphone === 'denied' || preflightIssue?.camera === 'missing' || preflightIssue?.microphone === 'missing') {
+        setCallError(preflightIssue.message);
+        return;
+      }
+
       const localCameraStream = await navigator.mediaDevices.getUserMedia({
         ...CALL_MEDIA_CONSTRAINTS,
         audio: {
@@ -268,8 +311,11 @@ export default function VideoCallPanel({
       localStreamRef.current = stream;
       setMicrophoneStream(new MediaStream(localCameraStream.getAudioTracks()));
       setIsInCall(true);
-    } catch {
-      setCallError('Could not access camera/microphone. Check browser permissions.');
+      setPermissionIssue(null);
+    } catch (error) {
+      const issue = buildPermissionIssueFromError(error);
+      setPermissionIssue(issue);
+      setCallError(issue.message);
     }
   };
 
@@ -530,6 +576,12 @@ export default function VideoCallPanel({
         <button className="button" onClick={joinCall} style={{ width: '100%' }}>
           Join Call
         </button>
+        {permissionIssue && (
+          <PermissionHelp
+            issue={permissionIssue}
+            onRetry={joinCall}
+          />
+        )}
         {callError && <p style={{ color: 'var(--red)', margin: '10px 0 0' }}>{callError}</p>}
       </div>
     );
@@ -634,6 +686,289 @@ export default function VideoCallPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+async function detectMediaPermissionIssue(): Promise<MediaPermissionIssue | null> {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    return {
+      title: 'Camera and microphone are not available',
+      message: 'This browser cannot access camera and microphone on this page.',
+      camera: 'unsupported',
+      microphone: 'unsupported',
+      steps: [
+        'Open this room in Chrome, Edge, Firefox, or Safari.',
+        'Use the HTTPS site URL, not an embedded preview or private browser wrapper.',
+      ],
+    };
+  }
+
+  const [camera, microphone] = await Promise.all([
+    queryMediaPermission('camera'),
+    queryMediaPermission('microphone'),
+  ]);
+
+  if (camera === 'denied' || microphone === 'denied') {
+    return buildBrowserPermissionIssue({
+      title: 'Camera or microphone is blocked',
+      message: 'Camera or microphone access is blocked at the browser or site level.',
+      camera,
+      microphone,
+    });
+  }
+
+  if (camera === 'prompt' || microphone === 'prompt') {
+    return {
+      title: 'Camera and microphone permission needed',
+      message: 'The browser has not allowed camera and microphone for this room yet.',
+      camera,
+      microphone,
+      browserSettingsUrl: getBrowserPermissionSettingsUrl(detectBrowser()),
+      steps: [
+        'Click Join Call and choose Allow when the browser asks.',
+        'If no prompt appears, open browser site permissions and set Camera and Microphone to Allow.',
+        'Also check system privacy settings so this browser can use camera and microphone.',
+      ],
+    };
+  }
+
+  const devices = await navigator.mediaDevices.enumerateDevices?.().catch(() => []);
+  const hasCamera = devices?.some((device) => device.kind === 'videoinput') ?? true;
+  const hasMicrophone = devices?.some((device) => device.kind === 'audioinput') ?? true;
+
+  if (!hasCamera || !hasMicrophone) {
+    return {
+      title: 'Camera or microphone not found',
+      message: !hasCamera && !hasMicrophone
+        ? 'No camera or microphone was detected.'
+        : !hasCamera
+          ? 'No camera was detected.'
+          : 'No microphone was detected.',
+      camera: hasCamera ? camera : 'missing',
+      microphone: hasMicrophone ? microphone : 'missing',
+      steps: [
+        'Connect or enable your camera and microphone.',
+        'Check that the browser has permission to use devices in your system privacy settings.',
+        'Close other apps that may be controlling the camera or microphone, then retry.',
+      ],
+    };
+  }
+
+  return null;
+}
+
+async function queryMediaPermission(name: 'camera' | 'microphone'): Promise<MediaPermissionState> {
+  if (!navigator.permissions?.query) return 'unsupported';
+
+  try {
+    const status = await navigator.permissions.query({ name: name as unknown as PermissionName });
+    return status.state;
+  } catch {
+    return 'unsupported';
+  }
+}
+
+async function watchPermission(name: 'camera' | 'microphone', onChange: () => void) {
+  if (!navigator.permissions?.query) return null;
+
+  try {
+    const status = await navigator.permissions.query({ name: name as unknown as PermissionName });
+    status.addEventListener('change', onChange);
+    return () => status.removeEventListener('change', onChange);
+  } catch {
+    return null;
+  }
+}
+
+function buildPermissionIssueFromError(error: unknown): MediaPermissionIssue {
+  const errorName = error instanceof DOMException ? error.name : '';
+
+  if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError' || errorName === 'SecurityError') {
+    return buildBrowserPermissionIssue({
+      title: 'Camera or microphone permission was denied',
+      message: 'The browser blocked camera or microphone access for this room.',
+      camera: 'denied',
+      microphone: 'denied',
+    });
+  }
+
+  if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
+    return {
+      title: 'Camera or microphone not found',
+      message: 'No usable camera or microphone was found.',
+      camera: 'missing',
+      microphone: 'missing',
+      steps: [
+        'Connect or enable your camera and microphone.',
+        'Allow this browser to use camera and microphone in your system privacy settings.',
+        'Restart the browser after changing system privacy settings.',
+      ],
+    };
+  }
+
+  if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
+    return {
+      title: 'Camera or microphone is already in use',
+      message: 'The browser can see your device, but another app or tab may be using it.',
+      camera: 'prompt',
+      microphone: 'prompt',
+      steps: [
+        'Close other video meeting apps and tabs.',
+        'Unplug and reconnect the camera or microphone if needed.',
+        'Retry joining the call.',
+      ],
+    };
+  }
+
+  return buildBrowserPermissionIssue({
+    title: 'Could not access camera or microphone',
+    message: 'Camera or microphone access failed. Check browser and system permissions.',
+    camera: 'unsupported',
+    microphone: 'unsupported',
+  });
+}
+
+function buildBrowserPermissionIssue({
+  title,
+  message,
+  camera,
+  microphone,
+}: {
+  title: string;
+  message: string;
+  camera: MediaPermissionState;
+  microphone: MediaPermissionState;
+}): MediaPermissionIssue {
+  const browser = detectBrowser();
+  const browserSettingsUrl = getBrowserPermissionSettingsUrl(browser);
+
+  return {
+    title,
+    message,
+    camera,
+    microphone,
+    browserSettingsUrl,
+    steps: getBrowserPermissionSteps(browser),
+  };
+}
+
+function detectBrowser() {
+  if (typeof navigator === 'undefined') return 'browser';
+  const ua = navigator.userAgent;
+  if (ua.includes('Edg/')) return 'edge';
+  if (ua.includes('Chrome/') && !ua.includes('Edg/')) return 'chrome';
+  if (ua.includes('Firefox/')) return 'firefox';
+  if (ua.includes('Safari/') && !ua.includes('Chrome/')) return 'safari';
+  return 'browser';
+}
+
+function getBrowserPermissionSettingsUrl(browser: string) {
+  const encodedOrigin = typeof window !== 'undefined' ? encodeURIComponent(window.location.origin) : '';
+  if (browser === 'chrome') return `chrome://settings/content/siteDetails?site=${encodedOrigin}`;
+  if (browser === 'edge') return `edge://settings/content/siteDetails?site=${encodedOrigin}`;
+  if (browser === 'firefox') return 'about:preferences#privacy';
+  return undefined;
+}
+
+function getBrowserPermissionSteps(browser: string) {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'this site';
+  if (browser === 'chrome') {
+    return [
+      `Open Chrome site settings for ${origin}.`,
+      'Set Camera and Microphone to Allow.',
+      'Also check Windows/macOS privacy settings so Chrome can use camera and microphone.',
+      'Return here and click Retry.',
+    ];
+  }
+  if (browser === 'edge') {
+    return [
+      `Open Edge site permissions for ${origin}.`,
+      'Set Camera and Microphone to Allow.',
+      'Also check Windows/macOS privacy settings so Edge can use camera and microphone.',
+      'Return here and click Retry.',
+    ];
+  }
+  if (browser === 'firefox') {
+    return [
+      `Open Firefox permissions or click the lock icon for ${origin}.`,
+      'Remove blocked Camera and Microphone permissions, then allow them when asked again.',
+      'Also check Windows/macOS privacy settings so Firefox can use camera and microphone.',
+      'Return here and click Retry.',
+    ];
+  }
+  if (browser === 'safari') {
+    return [
+      'Open Safari Settings, then Websites.',
+      'Set Camera and Microphone to Allow for this site.',
+      'On macOS/iOS, also allow Safari in system Camera and Microphone privacy settings.',
+      'Return here and click Retry.',
+    ];
+  }
+  return [
+    `Open browser site permissions for ${origin}.`,
+    'Set Camera and Microphone to Allow.',
+    'Also check system privacy settings so this browser can use camera and microphone.',
+    'Return here and click Retry.',
+  ];
+}
+
+function PermissionHelp({
+  issue,
+  onRetry,
+}: {
+  issue: MediaPermissionIssue;
+  onRetry: () => void;
+}) {
+  const openSettings = () => {
+    if (!issue.browserSettingsUrl) return;
+    window.open(issue.browserSettingsUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <div style={{ marginTop: 14, padding: 12, border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8, background: 'rgba(239,68,68,0.08)', textAlign: 'left' }}>
+      <div style={{ fontWeight: 700, color: 'var(--red)', marginBottom: 6 }}>{issue.title}</div>
+      <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.45, marginBottom: 8 }}>
+        {issue.message}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <PermissionPill label="Camera" state={issue.camera} />
+        <PermissionPill label="Microphone" state={issue.microphone} />
+      </div>
+      <ol style={{ margin: '0 0 10px 18px', padding: 0, color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.45 }}>
+        {issue.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {issue.browserSettingsUrl && (
+          <button className="button button-secondary" onClick={openSettings} style={{ padding: '7px 10px', minHeight: 34, fontSize: '0.78rem' }}>
+            Open browser permission settings
+          </button>
+        )}
+        <button className="button" onClick={onRetry} style={{ padding: '7px 10px', minHeight: 34, fontSize: '0.78rem' }}>
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PermissionPill({ label, state }: { label: string; state: MediaPermissionState }) {
+  const blocked = state === 'denied' || state === 'missing';
+  const text = state === 'granted'
+    ? 'Allowed'
+    : state === 'prompt'
+      ? 'Ask'
+      : state === 'missing'
+        ? 'Not found'
+        : state === 'unsupported'
+          ? 'Unknown'
+          : 'Blocked';
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 7px', borderRadius: 7, fontSize: '0.72rem', fontWeight: 700, background: blocked ? 'rgba(239,68,68,0.14)' : 'rgba(47,107,255,0.12)', color: blocked ? 'var(--red)' : 'var(--primary)' }}>
+      {label}: {text}
+    </span>
   );
 }
 
