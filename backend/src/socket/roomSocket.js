@@ -606,56 +606,84 @@ function registerRoomSocket(io, socket) {
     }
   });
 
-  socket.on('call:join', async ({ roomCode, userId, name }) => {
-    socket.callUserId = userId;
-    socket.callName = socket.data?.displayName || name || userId;
-    socket.join(roomCode);
-    socket.roomCode ||= roomCode;
+  socket.on('call:join', async ({ roomCode, userId, name } = {}, callback) => {
+    const targetRoomCode = roomCode || socket.roomCode;
+    const guestId = socket.data?.guestId || userId || socket.userData?.id;
+    const displayName = socket.data?.displayName || name || socket.userData?.name || guestId;
 
-    const members = await getCallMembers(io, roomCode, socket.id);
-    if (members.length >= 10) {
-      socket.emit('call:full', { limit: 10 });
-      socket.callUserId = null;
-      socket.callName = null;
+    if (!targetRoomCode || !guestId) {
+      callback?.({ ok: false, message: 'Missing room or guest identity.' });
       return;
     }
 
-    socket.emit('call:members', { members });
-    socket.to(roomCode).emit('call:user-joined', { socketId: socket.id, userId, name: socket.callName });
+    socket.join(targetRoomCode);
+    socket.roomCode ||= targetRoomCode;
+    socket.callRoomCode = targetRoomCode;
+
+    const members = await getCallMembers(io, targetRoomCode, socket.id);
+    if (members.length >= 10) {
+      socket.callRoomCode = null;
+      socket.callUserId = null;
+      socket.callName = null;
+      socket.emit('call:full', { limit: 10 });
+      callback?.({ ok: false, message: 'Video call is full.', limit: 10 });
+      return;
+    }
+
+    socket.callUserId = guestId;
+    socket.callName = displayName;
+    socket.data.callRoomCode = targetRoomCode;
+    socket.data.callUserId = guestId;
+    socket.data.callName = displayName;
+
+    const payload = { members, selfSocketId: socket.id, limit: 10 };
+    callback?.({ ok: true, ...payload });
+    socket.emit('call:members', payload);
+    socket.to(targetRoomCode).emit('call:user-joined', {
+      socketId: socket.id,
+      userId: guestId,
+      name: displayName,
+    });
   });
 
-  socket.on('call:signal', ({ to, from, signal }) => {
-    const target = io.sockets.sockets.get(to);
-    if (target && target.roomCode === socket.roomCode) {
-      target.emit('call:signal', {
+  socket.on('call:signal', async ({ to, from, signal }) => {
+    if (!to || !signal || !socket.callRoomCode || !socket.callUserId) return;
+
+    const roomSockets = await io.in(socket.callRoomCode).fetchSockets();
+    const target = roomSockets.find((roomSocket) => (
+      roomSocket.id === to ||
+      roomSocket.callUserId === to ||
+      roomSocket.data?.callUserId === to
+    ));
+
+    if (target && (target.callUserId || target.data?.callUserId)) {
+      io.to(target.id).emit('call:signal', {
         fromSocketId: socket.id,
         fromUserId: from || socket.callUserId,
         fromName: socket.callName,
         signal
       });
-      return;
-    }
-
-    for (const [, roomSocket] of io.sockets.sockets) {
-      if (roomSocket.callUserId === to && roomSocket.roomCode === socket.roomCode) {
-        roomSocket.emit('call:signal', {
-          fromSocketId: socket.id,
-          fromUserId: from || socket.callUserId,
-          fromName: socket.callName,
-          signal
-        });
-        return;
-      }
     }
   });
 
-  socket.on('call:leave', ({ roomCode, userId }) => {
-    socket.to(roomCode).emit('call:user-left', { userId });
+  socket.on('call:leave', ({ roomCode } = {}) => {
+    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+    if (targetRoomCode && socket.callUserId) {
+      socket.to(targetRoomCode).emit('call:user-left', {
+        userId: socket.callUserId,
+        socketId: socket.id,
+      });
+    }
+    socket.callRoomCode = null;
     socket.callUserId = null;
+    socket.callName = null;
+    socket.data.callRoomCode = null;
+    socket.data.callUserId = null;
+    socket.data.callName = null;
   });
 
   socket.on('call:media-state', ({ roomCode, state } = {}) => {
-    const targetRoomCode = roomCode || socket.roomCode;
+    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
     if (!targetRoomCode || !socket.callUserId) return;
     socket.to(targetRoomCode).emit('call:media-state', {
       userId: socket.callUserId,
@@ -665,7 +693,7 @@ function registerRoomSocket(io, socket) {
   });
 
   socket.on('call:speaking', ({ roomCode, speaking } = {}) => {
-    const targetRoomCode = roomCode || socket.roomCode;
+    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
     if (!targetRoomCode || !socket.callUserId) return;
     socket.to(targetRoomCode).emit('call:speaking', {
       userId: socket.callUserId,
@@ -709,6 +737,7 @@ function registerRoomSocket(io, socket) {
     if (socket.callUserId) {
       socket.to(roomCode).emit('call:user-left', {
         userId: socket.callUserId,
+        socketId: socket.id,
       });
     }
 

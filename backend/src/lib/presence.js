@@ -158,11 +158,18 @@ async function updatePresenceName(io, socket, displayName) {
 async function getCallMembers(io, roomCode, selfSocketId) {
   const sockets = await io.in(roomCode).fetchSockets();
   return sockets
-    .filter((roomSocket) => roomSocket.id !== selfSocketId && roomSocket.callUserId)
+    .filter((roomSocket) => (
+      roomSocket.id !== selfSocketId &&
+      (roomSocket.callUserId || roomSocket.data?.callUserId) &&
+      (
+        !(roomSocket.callRoomCode || roomSocket.data?.callRoomCode) ||
+        (roomSocket.callRoomCode || roomSocket.data?.callRoomCode) === roomCode
+      )
+    ))
     .map((roomSocket) => ({
       socketId: roomSocket.id,
-      userId: roomSocket.callUserId,
-      name: roomSocket.callName || roomSocket.data?.displayName || roomSocket.callUserId,
+      userId: roomSocket.callUserId || roomSocket.data?.callUserId,
+      name: roomSocket.callName || roomSocket.data?.callName || roomSocket.data?.displayName || roomSocket.callUserId || roomSocket.data?.callUserId,
     }));
 }
 

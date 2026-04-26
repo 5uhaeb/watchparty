@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 import { ICE_SERVERS } from '@/lib/iceServers';
 import RoomAudioControls from '@/components/RoomAudioControls';
@@ -13,6 +13,27 @@ interface PeerState {
   status: string;
   badges: string[];
 }
+
+interface CallMember {
+  socketId: string;
+  userId: string;
+  name: string;
+}
+
+interface CallPeer {
+  pc: RTCPeerConnection;
+  remoteStream: MediaStream;
+  pendingCandidates: RTCIceCandidateInit[];
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+  isSettingRemoteAnswerPending: boolean;
+  polite: boolean;
+  restartTimer?: number;
+}
+
+type CallSignal =
+  | { type: 'description'; description: RTCSessionDescriptionInit }
+  | { type: 'candidate'; candidate: RTCIceCandidateInit };
 
 const MAX_CALL_USERS = 10;
 
@@ -49,10 +70,12 @@ export default function VideoCallPanel({
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const callPeersRef = useRef<Map<string, CallPeer>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
   const hasJoinedCallRef = useRef(false);
+  const isJoiningCallRef = useRef(false);
+  const isLeavingCallRef = useRef(false);
+  const localSocketIdRef = useRef('');
 
   useEffect(() => {
     peersStateRef.current = peers;
@@ -95,93 +118,128 @@ export default function VideoCallPanel({
     }, 3800);
   };
 
+  const sendSignal = useCallback((remoteSocketId: string, signal: CallSignal) => {
+    socket.emit('call:signal', {
+      to: remoteSocketId,
+      from: currentUser.id,
+      signal,
+    });
+  }, [currentUser.id]);
+
   const addLocalTracksToPeerConnection = (pc: RTCPeerConnection) => {
     const localStream = localStreamRef.current;
-    if (!localStream) return;
+    const videoTrack = localStream?.getVideoTracks()[0];
 
-    localStream.getVideoTracks().forEach((cameraVideoTrack) => {
-      pc.addTrack(cameraVideoTrack, localStream);
-    });
+    if (localStream && videoTrack) {
+      pc.addTrack(videoTrack, localStream);
+      return;
+    }
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
   };
 
-  const createPC = (remoteSocketId: string, remoteUserId: string, remoteName: string, initiator: boolean) => {
-    const existing = pcsRef.current.get(remoteSocketId);
-    if (existing) return existing;
+  const flushPendingIce = async (peer: CallPeer) => {
+    const pending = [...peer.pendingCandidates];
+    peer.pendingCandidates = [];
+    for (const candidate of pending) {
+      await peer.pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => null);
+    }
+  };
 
-    ensurePeer(remoteSocketId, remoteUserId, remoteName);
+  const removePeerConnection = useCallback((socketId: string) => {
+    const peer = callPeersRef.current.get(socketId);
+    if (!peer) return;
+    if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+    peer.pc.ontrack = null;
+    peer.pc.onicecandidate = null;
+    peer.pc.onnegotiationneeded = null;
+    peer.pc.onconnectionstatechange = null;
+    peer.pc.oniceconnectionstatechange = null;
+    peer.pc.close();
+    callPeersRef.current.delete(socketId);
+    setPeers((current) => current.filter((item) => item.socketId !== socketId));
+  }, []);
+
+  const createPeerConnection = useCallback((member: CallMember) => {
+    const existing = callPeersRef.current.get(member.socketId);
+    if (existing) {
+      ensurePeer(member.socketId, member.userId, member.name);
+      return existing;
+    }
+
+    ensurePeer(member.socketId, member.userId, member.name);
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    pcsRef.current.set(remoteSocketId, pc);
+    const remoteStream = new MediaStream();
+    const localSocketId = localSocketIdRef.current || socket.id || '';
+    const peer: CallPeer = {
+      pc,
+      remoteStream,
+      pendingCandidates: [],
+      makingOffer: false,
+      ignoreOffer: false,
+      isSettingRemoteAnswerPending: false,
+      polite: !!localSocketId && localSocketId > member.socketId,
+    };
+    callPeersRef.current.set(member.socketId, peer);
 
     addLocalTracksToPeerConnection(pc);
 
-    const remoteStream = new MediaStream();
     pc.ontrack = (event) => {
-      const incomingStream = event.streams[0] || remoteStream;
+      const incomingStream = event.streams[0] || peer.remoteStream;
       incomingStream.getTracks().forEach((track) => {
-        if (!remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
-          remoteStream.addTrack(track);
+        if (!peer.remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
+          peer.remoteStream.addTrack(track);
         }
       });
-      updatePeer(remoteSocketId, { stream: remoteStream, status: 'Connected' });
+      updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Connected' });
     };
 
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') updatePeer(remoteSocketId, { status: 'Connected' });
-      if (pc.connectionState === 'connecting') updatePeer(remoteSocketId, { status: 'Connecting' });
-      if (['failed', 'disconnected'].includes(pc.connectionState)) {
-        updatePeer(remoteSocketId, { status: 'Reconnecting via relay' });
-        pc.restartIce?.();
-      }
-      if (pc.connectionState === 'closed') updatePeer(remoteSocketId, { status: 'Left' });
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        updatePeer(remoteSocketId, { status: 'Connected' });
-      }
-      if (pc.iceConnectionState === 'checking') {
-        updatePeer(remoteSocketId, { status: 'Connecting' });
-      }
-      if (pc.iceConnectionState === 'failed') {
-        updatePeer(remoteSocketId, { status: 'Relay needed' });
-      }
-      if (pc.iceConnectionState === 'disconnected') {
-        updatePeer(remoteSocketId, { status: 'Reconnecting' });
+    pc.onnegotiationneeded = async () => {
+      try {
+        peer.makingOffer = true;
+        await pc.setLocalDescription();
+        if (pc.localDescription) {
+          sendSignal(member.socketId, { type: 'description', description: pc.localDescription });
+        }
+      } catch {
+        updatePeer(member.socketId, { status: 'Could not negotiate' });
+      } finally {
+        peer.makingOffer = false;
       }
     };
 
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
-      socket.emit('call:signal', {
-        to: remoteSocketId,
-        from: currentUser.id,
-        signal: { type: 'ice-candidate', candidate: event.candidate },
-      });
+      sendSignal(member.socketId, { type: 'candidate', candidate: event.candidate.toJSON() });
     };
 
-    if (initiator) {
-      pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: true })
-        .then((offer) => pc.setLocalDescription(offer))
-        .then(() => {
-          socket.emit('call:signal', {
-            to: remoteSocketId,
-            from: currentUser.id,
-            signal: { type: 'offer', sdp: pc.localDescription },
-          });
-        })
-        .catch(() => updatePeer(remoteSocketId, { status: 'Could not connect' }));
-    }
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        updatePeer(member.socketId, { status: 'Connected' });
+        if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+      }
+      if (pc.connectionState === 'connecting') updatePeer(member.socketId, { status: 'Connecting' });
+      if (pc.connectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
+      if (pc.connectionState === 'failed') {
+        updatePeer(member.socketId, { status: 'Retrying connection' });
+        peer.restartTimer = window.setTimeout(() => {
+          if (pc.connectionState !== 'closed') pc.restartIce?.();
+        }, 500);
+      }
+      if (pc.connectionState === 'closed') updatePeer(member.socketId, { status: 'Left' });
+    };
 
-    return pc;
-  };
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        updatePeer(member.socketId, { status: 'Connected' });
+      }
+      if (pc.iceConnectionState === 'checking') updatePeer(member.socketId, { status: 'Connecting' });
+      if (pc.iceConnectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
+      if (pc.iceConnectionState === 'failed') updatePeer(member.socketId, { status: 'Retrying relay' });
+    };
 
-  const flushPendingIce = async (socketId: string, pc: RTCPeerConnection) => {
-    const pending = pendingIceRef.current.get(socketId) || [];
-    pendingIceRef.current.delete(socketId);
-    for (const candidate of pending) {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => null);
-    }
-  };
+    return peer;
+  }, [removePeerConnection, sendSignal]);
 
   const unlockAudio = async () => {
     const mediaElements = Array.from(document.querySelectorAll<HTMLMediaElement>('[data-call-media]'));
@@ -219,17 +277,26 @@ export default function VideoCallPanel({
   }, [isInCall]);
 
   const leaveCall = () => {
+    isLeavingCallRef.current = true;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     microphoneStream?.getTracks().forEach((track) => track.stop());
-    pcsRef.current.forEach((pc) => pc.close());
-    pcsRef.current.clear();
+    callPeersRef.current.forEach((peer) => {
+      if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+      peer.pc.close();
+    });
+    callPeersRef.current.clear();
     localStreamRef.current = null;
     hasJoinedCallRef.current = false;
+    isJoiningCallRef.current = false;
+    localSocketIdRef.current = '';
     setMicrophoneStream(null);
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setPeers([]);
     setIsInCall(false);
     socket.emit('call:leave', { roomCode, userId: currentUser.id });
+    window.setTimeout(() => {
+      isLeavingCallRef.current = false;
+    }, 0);
   };
 
   const toggleMic = () => {
@@ -255,15 +322,64 @@ export default function VideoCallPanel({
   useEffect(() => {
     if (!isInCall) return;
 
-    const handleMembers = ({ members }: { members?: Array<{ socketId: string; userId: string; name: string }> }) => {
+    const handleMembers = ({ members, selfSocketId }: { members?: CallMember[]; selfSocketId?: string }) => {
+      if (selfSocketId) localSocketIdRef.current = selfSocketId;
       for (const member of members || []) {
-        if (member.userId !== currentUser.id) ensurePeer(member.socketId, member.userId, member.name);
+        if (member.userId !== currentUser.id && member.socketId !== localSocketIdRef.current) {
+          createPeerConnection(member);
+        }
       }
     };
 
-    const handleUserJoined = ({ socketId, userId, name }: { socketId: string; userId: string; name: string }) => {
-      if (userId === currentUser.id) return;
-      createPC(socketId, userId, name, true);
+    const joinCallRoom = () => {
+      if (isLeavingCallRef.current || hasJoinedCallRef.current || isJoiningCallRef.current) return;
+      if (!socket.connected) socket.connect();
+      isJoiningCallRef.current = true;
+
+      socket.timeout(8000).emit(
+        'call:join',
+        { roomCode, userId: currentUser.id, name: currentUser.name },
+        (error: Error | null, response?: { ok?: boolean; message?: string; members?: CallMember[]; selfSocketId?: string; limit?: number }) => {
+          if (error) {
+            setCallError('Could not join video call. Check your connection and try again.');
+            isJoiningCallRef.current = false;
+            hasJoinedCallRef.current = false;
+            return;
+          }
+          if (!response?.ok) {
+            setCallError(response?.message || 'Could not join video call.');
+            isJoiningCallRef.current = false;
+            hasJoinedCallRef.current = false;
+            if (response?.limit) setCallError(`Video call is full. Limit is ${response.limit} users.`);
+            return;
+          }
+          localSocketIdRef.current = response.selfSocketId || socket.id || '';
+          hasJoinedCallRef.current = true;
+          isJoiningCallRef.current = false;
+          handleMembers({ members: response.members || [], selfSocketId: response.selfSocketId });
+        }
+      );
+    };
+
+    const rebuildCallAfterReconnect = () => {
+      if (!isInCall || isLeavingCallRef.current) return;
+      if (isJoiningCallRef.current) return;
+      if (!hasJoinedCallRef.current && callPeersRef.current.size === 0) return;
+      callPeersRef.current.forEach((peer) => {
+        if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+        peer.pc.close();
+      });
+      callPeersRef.current.clear();
+      setPeers([]);
+      hasJoinedCallRef.current = false;
+      isJoiningCallRef.current = false;
+      localSocketIdRef.current = socket.id || '';
+      joinCallRoom();
+    };
+
+    const handleUserJoined = ({ socketId, userId, name }: CallMember) => {
+      if (userId === currentUser.id || socketId === localSocketIdRef.current) return;
+      createPeerConnection({ socketId, userId, name });
     };
 
     const handleFull = ({ limit }: { limit: number }) => {
@@ -297,52 +413,69 @@ export default function VideoCallPanel({
       fromSocketId: string;
       fromUserId?: string;
       fromName?: string;
-      signal: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+      signal: CallSignal | { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
     }) => {
-      let pc = pcsRef.current.get(fromSocketId);
+      const description = signal.type === 'description' && 'description' in signal
+        ? signal.description
+        : signal.type === 'offer' || signal.type === 'answer'
+          ? signal.sdp
+          : null;
+      const candidate = signal.type === 'candidate' || signal.type === 'ice-candidate'
+        ? signal.candidate
+        : null;
+      const peer = createPeerConnection({
+        socketId: fromSocketId,
+        userId: fromUserId || fromSocketId,
+        name: fromName || fromUserId || fromSocketId,
+      });
+      const pc = peer.pc;
 
       try {
-        if (signal.type === 'offer') {
-          if (!pc) pc = createPC(fromSocketId, fromUserId || fromSocketId, fromName || fromUserId || fromSocketId, false);
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
-          await flushPendingIce(fromSocketId, pc);
-          const answer = await pc.createAnswer({ offerToReceiveAudio: false, offerToReceiveVideo: true });
-          await pc.setLocalDescription(answer);
-          socket.emit('call:signal', {
-            to: fromSocketId,
-            from: currentUser.id,
-            signal: { type: 'answer', sdp: pc.localDescription },
-          });
-        } else if (signal.type === 'answer' && pc) {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp!));
-          await flushPendingIce(fromSocketId, pc);
-        } else if (signal.type === 'ice-candidate' && pc) {
-          if (pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate!));
-          } else {
-            const pending = pendingIceRef.current.get(fromSocketId) || [];
-            pending.push(signal.candidate!);
-            pendingIceRef.current.set(fromSocketId, pending);
+        if (description) {
+          const readyForOffer =
+            !peer.makingOffer &&
+            (pc.signalingState === 'stable' || peer.isSettingRemoteAnswerPending);
+          const offerCollision = description.type === 'offer' && !readyForOffer;
+
+          peer.ignoreOffer = !peer.polite && offerCollision;
+          if (peer.ignoreOffer) return;
+
+          peer.isSettingRemoteAnswerPending = description.type === 'answer';
+          await pc.setRemoteDescription(new RTCSessionDescription(description));
+          peer.isSettingRemoteAnswerPending = false;
+          await flushPendingIce(peer);
+
+          if (description.type === 'offer') {
+            await pc.setLocalDescription();
+            if (pc.localDescription) {
+              sendSignal(fromSocketId, { type: 'description', description: pc.localDescription });
+            }
           }
-        } else if (signal.type === 'ice-candidate') {
-          const pending = pendingIceRef.current.get(fromSocketId) || [];
-          pending.push(signal.candidate!);
-          pendingIceRef.current.set(fromSocketId, pending);
+          return;
+        }
+
+        if (candidate) {
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } else {
+            peer.pendingCandidates.push(candidate);
+          }
         }
       } catch {
+        peer.isSettingRemoteAnswerPending = false;
+        if (peer.ignoreOffer) return;
         updatePeer(fromSocketId, { status: 'Signal failed' });
       }
     };
 
-    const handleUserLeft = ({ userId }: { userId: string }) => {
-      for (const [socketId, pc] of pcsRef.current) {
-        const peer = peersStateRef.current.find((item) => item.socketId === socketId);
-        if (peer?.userId === userId) {
-          pc.close();
-          pcsRef.current.delete(socketId);
-        }
+    const handleUserLeft = ({ userId, socketId }: { userId?: string; socketId?: string }) => {
+      if (socketId) {
+        removePeerConnection(socketId);
+        return;
       }
-      setPeers((current) => current.filter((peer) => peer.userId !== userId));
+      if (!userId) return;
+      const matchingPeers = peersStateRef.current.filter((item) => item.userId === userId);
+      matchingPeers.forEach((peer) => removePeerConnection(peer.socketId));
     };
 
     socket.on('call:members', handleMembers);
@@ -354,16 +487,10 @@ export default function VideoCallPanel({
     socket.on('participant:updated', handleNameChanged);
     socket.on('call:media-state', handleMediaState);
     socket.on('call:speaking', handleSpeaking);
+    socket.on('connect', rebuildCallAfterReconnect);
 
     const joinTimer = window.setTimeout(() => {
-      if (!hasJoinedCallRef.current) {
-        hasJoinedCallRef.current = true;
-        socket.emit('call:join', {
-          roomCode,
-          userId: currentUser.id,
-          name: currentUser.name
-        });
-      }
+      joinCallRoom();
     }, 0);
 
     return () => {
@@ -377,8 +504,9 @@ export default function VideoCallPanel({
       socket.off('participant:updated', handleNameChanged);
       socket.off('call:media-state', handleMediaState);
       socket.off('call:speaking', handleSpeaking);
+      socket.off('connect', rebuildCallAfterReconnect);
     };
-  }, [isInCall, currentUser.id, currentUser.name, roomCode]);
+  }, [isInCall, currentUser.id, currentUser.name, roomCode, createPeerConnection, removePeerConnection, sendSignal]);
 
   if (!isInCall) {
     return (
