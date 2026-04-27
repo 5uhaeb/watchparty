@@ -20,9 +20,16 @@ interface Props {
 
 type TimedPlayback = {
   positionSec: number;
+  mediaTimeMs?: number;
+  wallClockMs?: number;
   atServerTs?: number;
   byUserId?: string;
+  isPlaying?: boolean;
+  playbackRate?: number;
 };
+
+const HARD_SYNC_DRIFT_SEC = 0.4;
+const SOFT_SYNC_DRIFT_SEC = 0.1;
 
 export default function RoomPlayer({
   roomCode,
@@ -70,97 +77,96 @@ export default function RoomPlayer({
     }, releaseAfterMs);
   }, []);
 
-  const applyPlay = useCallback(
-    ({ positionSec, atServerTs }: TimedPlayback) => {
-      const latencySec = atServerTs ? Math.max(0, (Date.now() - atServerTs) / 1000) : 0;
-      const compensatedPosition = positionSec + latencySec;
+  const applyHostSync = useCallback((payload: TimedPlayback, force = false) => {
+    if (!playerRef.current) return;
+    const basePositionSec = Number.isFinite(payload.mediaTimeMs)
+      ? Number(payload.mediaTimeMs) / 1000
+      : Number(payload.positionSec || 0);
+    const wallClockMs = payload.wallClockMs || payload.atServerTs || Date.now();
+    const shouldPlay = payload.isPlaying ?? playerRef.current.getState() === 'playing';
+    const elapsedSec = shouldPlay ? Math.max(0, (Date.now() - wallClockMs) / 1000) : 0;
+    const targetPosition = Math.max(0, basePositionSec + elapsedSec);
+    const driftSec = targetPosition - currentPosition();
 
-      withRemoteGuard(() => {
-        if (Math.abs(currentPosition() - compensatedPosition) > 0.4) {
-          playerRef.current?.seek(compensatedPosition);
-        }
-        playerRef.current?.play();
-      });
-    },
-    [currentPosition, withRemoteGuard]
-  );
+    withRemoteGuard(() => {
+      if (force || Math.abs(driftSec) > HARD_SYNC_DRIFT_SEC) {
+        playerRef.current?.seek(targetPosition);
+        playerRef.current?.setPlaybackRate?.(1);
+      } else if (Math.abs(driftSec) > SOFT_SYNC_DRIFT_SEC && shouldPlay) {
+        playerRef.current?.setPlaybackRate?.(driftSec > 0 ? 1.03 : 0.97);
+        window.setTimeout(() => playerRef.current?.setPlaybackRate?.(1), 1500);
+      } else {
+        playerRef.current?.setPlaybackRate?.(1);
+      }
 
-  const applyPause = useCallback(
-    ({ positionSec }: TimedPlayback) => {
-      withRemoteGuard(() => {
-        if (Math.abs(currentPosition() - positionSec) > 0.4) {
-          playerRef.current?.seek(positionSec);
-        }
-        playerRef.current?.pause();
-      });
-    },
-    [currentPosition, withRemoteGuard]
-  );
+      if (shouldPlay) playerRef.current?.play();
+      else playerRef.current?.pause();
+    }, force ? 900 : 500);
+  }, [currentPosition, withRemoteGuard]);
 
-  const applySeek = useCallback(
-    ({ positionSec }: { positionSec: number }) => {
-      withRemoteGuard(() => {
-        playerRef.current?.seek(positionSec);
-      }, 500);
-    },
-    [withRemoteGuard]
-  );
+  const syncNow = useCallback((showToast = false) => {
+    const state = playerRef.current?.getState();
+    const positionSec = currentPosition();
+    const payload = {
+      roomCode,
+      userId: currentUserId,
+      positionSec,
+      mediaTimeMs: Math.round(positionSec * 1000),
+      wallClockMs: Date.now(),
+      playbackRate: 1,
+    };
+
+    if (state === 'playing') {
+      socket.emit('player:play', payload);
+    } else {
+      socket.emit('player:pause', payload);
+    }
+
+    if (showToast) {
+      window.dispatchEvent(new CustomEvent('watchparty:toast', { detail: 'Synced to host' }));
+    }
+  }, [currentPosition, currentUserId, roomCode]);
 
   useEffect(() => {
     if (adapterType === 'localStream' || adapterType === 'embed') return;
 
     const onPlay = (payload: TimedPlayback) => {
-      if (payload.byUserId !== currentUserId) applyPlay(payload);
+      if (payload.byUserId !== currentUserId) applyHostSync({ ...payload, isPlaying: true });
     };
     const onPause = (payload: TimedPlayback) => {
-      if (payload.byUserId !== currentUserId) applyPause(payload);
+      if (payload.byUserId !== currentUserId) applyHostSync({ ...payload, isPlaying: false });
     };
-    const onSeek = (payload: { positionSec: number; byUserId?: string }) => {
-      if (payload.byUserId !== currentUserId) applySeek(payload);
+    const onSeek = (payload: TimedPlayback) => {
+      if (payload.byUserId !== currentUserId) applyHostSync(payload, true);
     };
-    const onHeartbeat = ({ positionSec, atServerTs, byUserId }: { positionSec: number; atServerTs?: number; byUserId?: string }) => {
-      if (byUserId === currentUserId || !playerRef.current) return;
-
-      const latencySec =
-        playerRef.current.getState() === 'playing' && atServerTs
-          ? Math.max(0, (Date.now() - atServerTs) / 1000)
-          : 0;
-      const targetPosition = positionSec + latencySec;
-      const delta = targetPosition - playerRef.current.getCurrentTime();
-      if (Math.abs(delta) > 1.5) {
-        withRemoteGuard(() => {
-          playerRef.current?.seek(targetPosition);
-        }, 500);
+    const onHeartbeat = (payload: TimedPlayback) => {
+      if (payload.byUserId === currentUserId) return;
+      applyHostSync({ ...payload, isPlaying: true });
+    };
+    const onReconnectSync = (playback: { isPlaying: boolean; currentTime: number; atServerTs?: number; wallClockMs?: number; mediaTimeMs?: number }) => {
+      applyHostSync({
+        positionSec: playback.currentTime || 0,
+        mediaTimeMs: playback.mediaTimeMs,
+        wallClockMs: playback.wallClockMs || playback.atServerTs,
+        isPlaying: playback.isPlaying,
+      }, true);
+    };
+    const onPlayerState = (state: TimedPlayback & { serverTs?: number }) => {
+      applyHostSync({
+        ...state,
+        wallClockMs: state.wallClockMs || state.serverTs,
+      }, true);
+    };
+    const onManualSync = (event: Event) => {
+      const detail = (event as CustomEvent<{ force?: boolean }>).detail || {};
+      if (isHost) {
+        syncNow(true);
+        return;
       }
-    };
-    const onReconnectSync = (playback: { isPlaying: boolean; currentTime: number; atServerTs?: number }) => {
-      const latencySec =
-        playback.isPlaying && playback.atServerTs
-          ? Math.max(0, (Date.now() - playback.atServerTs) / 1000)
-          : 0;
-
-      withRemoteGuard(() => {
-        playerRef.current?.seek((playback.currentTime || 0) + latencySec);
-        if (playback.isPlaying) {
-          playerRef.current?.play();
-        } else {
-          playerRef.current?.pause();
-        }
-      });
-    };
-    const onPlayerState = (state: { isPlaying: boolean; positionSec: number; serverTs?: number }) => {
-      const latencySec =
-        state.isPlaying && state.serverTs
-          ? Math.max(0, (Date.now() - state.serverTs) / 1000)
-          : 0;
-
-      withRemoteGuard(() => {
-        playerRef.current?.seek((state.positionSec || 0) + latencySec);
-        if (state.isPlaying) {
-          playerRef.current?.play();
-        } else {
-          playerRef.current?.pause();
-        }
+      socket.timeout(3000).emit('player:manual-sync', { roomCode }, (_error: Error | null, payload?: TimedPlayback & { serverTs?: number; isPlaying?: boolean }) => {
+        if (!payload) return;
+        applyHostSync({ ...payload, wallClockMs: payload.wallClockMs || payload.serverTs }, true);
+        window.dispatchEvent(new CustomEvent('watchparty:toast', { detail: 'Synced to host' }));
       });
     };
 
@@ -170,6 +176,8 @@ export default function RoomPlayer({
     socket.on('player:heartbeat', onHeartbeat);
     socket.on('reconnect:sync', onReconnectSync);
     socket.on('player:state', onPlayerState);
+    socket.on('player:manual-sync', onPlayerState);
+    window.addEventListener('watchparty:sync-now', onManualSync);
     const stateTimer = window.setTimeout(() => socket.emit('player:state', { roomCode }), 250);
 
     return () => {
@@ -180,8 +188,10 @@ export default function RoomPlayer({
       socket.off('player:heartbeat', onHeartbeat);
       socket.off('reconnect:sync', onReconnectSync);
       socket.off('player:state', onPlayerState);
+      socket.off('player:manual-sync', onPlayerState);
+      window.removeEventListener('watchparty:sync-now', onManualSync);
     };
-  }, [adapterType, applyPause, applyPlay, applySeek, currentUserId, roomCode, withRemoteGuard]);
+  }, [adapterType, applyHostSync, currentUserId, isHost, roomCode, syncNow]);
 
   useEffect(() => {
     if (!isHost || adapterType === 'localStream' || adapterType === 'embed') return;
@@ -236,18 +246,6 @@ export default function RoomPlayer({
     }
 
     lastObservedPositionRef.current = positionSec;
-  };
-
-  const syncNow = () => {
-    const state = playerRef.current?.getState();
-    const positionSec = currentPosition();
-
-    if (state === 'playing') {
-      socket.emit('player:play', { roomCode, userId: currentUserId, positionSec });
-      return;
-    }
-
-    socket.emit('player:pause', { roomCode, userId: currentUserId, positionSec });
   };
 
   if (adapterType === 'localStream' || (isHost && localStreamFile)) {
@@ -350,7 +348,7 @@ export default function RoomPlayer({
     <div className="player-stack">
       <div className="player-toolbar">
         {isHost && (
-          <button onClick={syncNow} style={{ padding: '8px 14px' }}>
+          <button onClick={() => syncNow(true)} style={{ padding: '8px 14px' }}>
             Sync Now
           </button>
         )}

@@ -6,6 +6,7 @@ export interface PlayerAdapter {
   play: () => void;
   pause: () => void;
   seek: (seconds: number) => void;
+  setPlaybackRate?: (rate: number) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
   getState: () => PlayerState;

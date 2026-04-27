@@ -96,6 +96,7 @@ const YouTubePlayer = forwardRef<PlayerAdapter, Props>(function YouTubePlayer(
     play: () => playerRef.current?.playVideo?.(),
     pause: () => playerRef.current?.pauseVideo?.(),
     seek: (seconds: number) => playerRef.current?.seekTo?.(seconds, true),
+    setPlaybackRate: (rate: number) => playerRef.current?.setPlaybackRate?.(rate),
     getCurrentTime: () => playerRef.current?.getCurrentTime?.() || 0,
     getDuration: () => playerRef.current?.getDuration?.() || 0,
     getState: () => mapYouTubeState(playerRef.current?.getPlayerState?.()),

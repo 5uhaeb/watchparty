@@ -53,6 +53,38 @@ NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-janus-render-url
 
 If this value is missing or the Janus service is not running, camera video can still connect, but mixed room audio will not work.
 
+## Call & Sync Architecture
+
+WatchParty uses raw WebRTC mesh calls plus Socket.IO signaling. Each participant owns one peer connection per remote socket, and each remote tile owns its own `<video>` element.
+
+```text
+Participant A camera/mic ─┐
+                          ├─ RTCPeerConnection Map<peerSocketId, pc> ── Socket.IO call:signal ── peers
+Participant B camera/mic ─┘
+
+Host player time ── player:play/pause/seek/heartbeat { mediaTimeMs, wallClockMs } ── guests
+Guests compute drift = host media time + wall-clock elapsed - local media time.
+```
+
+Sync is host-authoritative. The host broadcasts play, pause, seek, and 3-second heartbeat updates with media time and wall-clock time. Guests hard-seek for drift over 400 ms and gently correct smaller drift with playback-rate nudges. The call panel also exposes **Sync Now**: hosts broadcast their current state, while guests request the latest host state and seek locally.
+
+Call mute keeps the outgoing audio sender alive and silences it with a gain node, which avoids tearing down the WebRTC audio track. Camera switching uses `RTCRtpSender.replaceTrack()` so flipping cameras does not renegotiate the call.
+
+Manual test matrix for call and sync changes:
+
+| Scenario | Expected result |
+| --- | --- |
+| 2 browser profiles join call | Each sees the other's remote video tile within 3 seconds. |
+| 3 browser profiles join call | Every participant sees two remote tiles. |
+| Late joiner enters active call | Existing peers negotiate to the late joiner within 3 seconds. |
+| Peer leaves, then rejoins | Old tile is removed, new tile reconnects with a fresh peer connection. |
+| Host play/pause/seek | Guests reflect the state within about 500 ms on healthy networks. |
+| Guest presses Sync Now | Guest requests host state and seeks locally; toast says "Synced to host". |
+| Host presses Sync Now | Host broadcasts current media state to the room. |
+| Flip Camera with two cameras | Outgoing video changes without leaving or renegotiating the call. |
+| Mute/unmute | Remote participants keep the audio track alive; muted sends silence. |
+| Fullscreen modes 1/2/3 | Side, cinema, and overlay layouts switch with keyboard or segmented controls. |
+
 ## Project structure
 
 ```bash

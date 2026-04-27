@@ -229,12 +229,17 @@ function getCompensatedPosition(playback = {}) {
 
 function serializePlayerState(room) {
   const playback = room.playback || {};
+  const positionSec = getCompensatedPosition(playback);
+  const serverTs = Date.now();
   return {
     source: room.source || null,
-    positionSec: getCompensatedPosition(playback),
+    positionSec,
+    mediaTimeMs: Math.round(positionSec * 1000),
     isPlaying: !!playback.isPlaying,
     hostUserId: room.ownerGuestId,
-    serverTs: Date.now(),
+    hostId: playback.updatedBy || room.ownerGuestId,
+    serverTs,
+    wallClockMs: serverTs,
     provider: playback.provider || room.source?.provider,
     sourceType: room.source?.type,
     tabUrlHash: playback.tabUrlHash,
@@ -274,6 +279,7 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
   const atServerTs = Date.now();
   const isPlaying = eventName === 'player:play' ? true : eventName === 'player:pause' ? false : room.playback?.isPlaying || false;
   const meta = ottValidation.meta || {};
+  const playbackRate = Number(rawPayload.playbackRate);
   const playbackSet = {
     'playback.currentTime': nextPosition,
     'playback.updatedAt': new Date(atServerTs),
@@ -288,8 +294,12 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
 
   socket.to(targetRoomCode).emit(eventName, {
     positionSec: nextPosition,
+    mediaTimeMs: Math.round(nextPosition * 1000),
+    wallClockMs: atServerTs,
     atServerTs,
     byUserId: actorUserId,
+    hostId: actorUserId,
+    playbackRate: Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1,
     roomCode: targetRoomCode,
     ...meta,
   });
@@ -432,6 +442,23 @@ function registerRoomSocket(io, socket) {
       return;
     }
     socket.emit('player:state', payload);
+  });
+
+  socket.on('player:manual-sync', async ({ roomCode } = {}, callback) => {
+    if (!consumeBucket(socket, 'player:manual-sync', 3, 5 * 1000)) return;
+
+    const targetRoomCode = getRoomCode(socket, roomCode);
+    if (!targetRoomCode) return;
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room) return;
+
+    const payload = serializePlayerState(room);
+    if (typeof callback === 'function') {
+      callback(payload);
+      return;
+    }
+    socket.emit('player:manual-sync', payload);
   });
 
   socket.on('room:setSource', async (payload = {}) => {

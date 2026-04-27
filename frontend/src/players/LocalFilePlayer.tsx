@@ -40,6 +40,9 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
     seek: (seconds: number) => {
       if (videoRef.current) videoRef.current.currentTime = seconds;
     },
+    setPlaybackRate: (rate: number) => {
+      if (videoRef.current) videoRef.current.playbackRate = rate;
+    },
     getCurrentTime: () => videoRef.current?.currentTime || 0,
     getDuration: () => videoRef.current?.duration || 0,
     getState: () => getVideoState(videoRef.current),

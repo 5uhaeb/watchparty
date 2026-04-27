@@ -30,6 +30,8 @@ interface CallPeer {
   polite: boolean;
   shouldOffer: boolean;
   restartTimer?: number;
+  statsTimer?: number;
+  lastStats?: { packetsLost: number; packetsSent: number; checkedAt: number };
 }
 
 type CallSignal =
@@ -58,6 +60,12 @@ const CALL_MEDIA_CONSTRAINTS: MediaStreamConstraints = {
   video: true,
 };
 
+const VIDEO_BITRATE_TIERS = {
+  high: 1_500_000,
+  medium: 850_000,
+  low: 350_000,
+};
+
 export default function VideoCallPanel({
   roomCode,
   currentUser,
@@ -78,13 +86,18 @@ export default function VideoCallPanel({
   const [micVolume, setMicVolume] = useState(1);
   const [mediaVolume, setMediaVolume] = useState(1);
   const [mixedRoomVolume, setMixedRoomVolume] = useState(1);
-  const [advancedAudio, setAdvancedAudio] = useState(false);
   const [permissionIssue, setPermissionIssue] = useState<MediaPermissionIssue | null>(null);
   const [callReconnectKey, setCallReconnectKey] = useState(0);
   const [networkWarning, setNetworkWarning] = useState('');
+  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
+  const [cameraIndex, setCameraIndex] = useState(0);
+  const [syncToast, setSyncToast] = useState('');
 
   const localStreamRef = useRef<MediaStream | null>(null);
+  const rawMicrophoneStreamRef = useRef<MediaStream | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const micAudioContextRef = useRef<AudioContext | null>(null);
+  const micGainRef = useRef<GainNode | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const callPeersRef = useRef<Map<string, CallPeer>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
@@ -92,10 +105,25 @@ export default function VideoCallPanel({
   const isJoiningCallRef = useRef(false);
   const isLeavingCallRef = useRef(false);
   const localSocketIdRef = useRef('');
+  const lastSyncClickRef = useRef(0);
 
   useEffect(() => {
     peersStateRef.current = peers;
   }, [peers]);
+
+  useEffect(() => {
+    micGainRef.current?.gain.setTargetAtTime(isMicOn ? micVolume : 0, micAudioContextRef.current?.currentTime || 0, 0.02);
+  }, [isMicOn, micVolume]);
+
+  useEffect(() => {
+    const showToast = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail || 'Synced to host';
+      setSyncToast(message);
+      window.setTimeout(() => setSyncToast(''), 2200);
+    };
+    window.addEventListener('watchparty:toast', showToast);
+    return () => window.removeEventListener('watchparty:toast', showToast);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +153,24 @@ export default function VideoCallPanel({
     setPeers((current) =>
       current.map((peer) => peer.socketId === socketId ? { ...peer, ...patch } : peer)
     );
+  };
+
+  const refreshVideoInputs = async () => {
+    const devices = await navigator.mediaDevices?.enumerateDevices?.().catch(() => []);
+    setVideoInputs((devices || []).filter((device) => device.kind === 'videoinput'));
+  };
+
+  const applySenderBitrate = async (sender: RTCRtpSender, maxBitrate = VIDEO_BITRATE_TIERS.high) => {
+    const params = sender.getParameters();
+    params.encodings = params.encodings?.length ? params.encodings : [{}];
+    params.encodings[0].maxBitrate = maxBitrate;
+    await sender.setParameters(params).catch(() => null);
+  };
+
+  const configurePeerSenderQuality = (pc: RTCPeerConnection) => {
+    pc.getSenders()
+      .filter((sender) => sender.track?.kind === 'video')
+      .forEach((sender) => applySenderBitrate(sender).catch(() => null));
   };
 
   const ensurePeer = (socketId: string, userId: string, name = userId) => {
@@ -187,6 +233,24 @@ export default function VideoCallPanel({
     }
   }, []);
 
+  const createSilentSwitchableMicStream = async (inputStream: MediaStream) => {
+    const audioTracks = inputStream.getAudioTracks();
+    if (!audioTracks.length) return new MediaStream();
+
+    const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return new MediaStream(audioTracks);
+
+    const context = new AudioContextCtor({ sampleRate: 48000 });
+    const source = context.createMediaStreamSource(new MediaStream(audioTracks));
+    const gain = context.createGain();
+    const destination = context.createMediaStreamDestination();
+    gain.gain.value = isMicOn ? micVolume : 0;
+    source.connect(gain).connect(destination);
+    micAudioContextRef.current = context;
+    micGainRef.current = gain;
+    return destination.stream;
+  };
+
   const flushPendingIce = async (peer: CallPeer) => {
     const pending = [...peer.pendingCandidates];
     peer.pendingCandidates = [];
@@ -199,6 +263,7 @@ export default function VideoCallPanel({
     const peer = callPeersRef.current.get(socketId);
     if (!peer) return;
     if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+    if (peer.statsTimer) window.clearInterval(peer.statsTimer);
     peer.pc.ontrack = null;
     peer.pc.onicecandidate = null;
     peer.pc.onnegotiationneeded = null;
@@ -234,6 +299,7 @@ export default function VideoCallPanel({
     callPeersRef.current.set(member.socketId, peer);
 
     addLocalTracksToPeerConnection(pc);
+    configurePeerSenderQuality(pc);
 
     pc.ontrack = (event) => {
       const incomingTracks = event.streams[0]?.getTracks().length
@@ -244,11 +310,18 @@ export default function VideoCallPanel({
         if (!peer.remoteStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
           peer.remoteStream.addTrack(track);
         }
-        track.onunmute = () => updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Connected' });
-        track.onmute = () => updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Waiting for video' });
+        const publishStream = () => updatePeer(member.socketId, {
+          stream: new MediaStream(peer.remoteStream.getTracks()),
+          status: peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Waiting for video',
+        });
+        track.onunmute = publishStream;
+        track.onmute = () => updatePeer(member.socketId, { status: 'Waiting for video' });
         track.onended = () => updatePeer(member.socketId, { status: 'Video ended' });
       });
-      updatePeer(member.socketId, { stream: peer.remoteStream, status: 'Connected' });
+      updatePeer(member.socketId, {
+        stream: new MediaStream(peer.remoteStream.getTracks()),
+        status: peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Waiting for video',
+      });
     };
 
     pc.onnegotiationneeded = async () => {
@@ -300,8 +373,34 @@ export default function VideoCallPanel({
       if (pc.iceConnectionState === 'failed') {
         updatePeer(member.socketId, { status: 'TURN relay needed' });
         setNetworkWarning('Video works on the same WiFi but fails across networks when no working TURN relay is configured. Add TURN credentials in Vercel, then redeploy.');
+        pc.restartIce?.();
       }
     };
+
+    peer.statsTimer = window.setInterval(async () => {
+      const report = await pc.getStats().catch(() => null);
+      if (!report) return;
+      let packetsLost = 0;
+      let packetsSent = 0;
+      report.forEach((item) => {
+        if (item.type === 'outbound-rtp' && item.kind === 'video') packetsSent += Number(item.packetsSent || 0);
+        if (item.type === 'remote-inbound-rtp' && item.kind === 'video') packetsLost += Number(item.packetsLost || 0);
+      });
+      const previous = peer.lastStats;
+      peer.lastStats = { packetsLost, packetsSent, checkedAt: Date.now() };
+      if (!previous) return;
+      const lostDelta = Math.max(0, packetsLost - previous.packetsLost);
+      const sentDelta = Math.max(1, packetsSent - previous.packetsSent);
+      const lossRatio = lostDelta / sentDelta;
+      if (process.env.NODE_ENV === 'development') {
+        console.info('[call health]', member.socketId, { state: pc.connectionState, ice: pc.iceConnectionState, lossRatio });
+      }
+      if (lossRatio > 0.05) {
+        pc.getSenders()
+          .filter((sender) => sender.track?.kind === 'video')
+          .forEach((sender) => applySenderBitrate(sender, VIDEO_BITRATE_TIERS.low).catch(() => null));
+      }
+    }, 10000);
 
     return peer;
   }, [addLocalTracksToPeerConnection, removePeerConnection, sendSignal]);
@@ -340,19 +439,22 @@ export default function VideoCallPanel({
       const localCameraStream = await navigator.mediaDevices.getUserMedia({
         ...CALL_MEDIA_CONSTRAINTS,
         audio: {
-          echoCancellation: !advancedAudio,
-          noiseSuppression: !advancedAudio,
-          autoGainControl: !advancedAudio,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
 
       const stream = new MediaStream([
         ...localCameraStream.getVideoTracks(),
       ]);
-      const micStream = new MediaStream(localCameraStream.getAudioTracks());
+      const rawMicStream = new MediaStream(localCameraStream.getAudioTracks());
+      const micStream = await createSilentSwitchableMicStream(rawMicStream);
       localStreamRef.current = stream;
+      rawMicrophoneStreamRef.current = rawMicStream;
       microphoneStreamRef.current = micStream;
       setMicrophoneStream(micStream);
+      await refreshVideoInputs();
       setIsInCall(true);
       setPermissionIssue(null);
     } catch (error) {
@@ -371,15 +473,21 @@ export default function VideoCallPanel({
   const leaveCall = () => {
     isLeavingCallRef.current = true;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    rawMicrophoneStreamRef.current?.getTracks().forEach((track) => track.stop());
     const micStream = microphoneStreamRef.current || microphoneStream;
     micStream?.getTracks().forEach((track) => track.stop());
+    micAudioContextRef.current?.close().catch(() => null);
     callPeersRef.current.forEach((peer) => {
       if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+      if (peer.statsTimer) window.clearInterval(peer.statsTimer);
       peer.pc.close();
     });
     callPeersRef.current.clear();
     localStreamRef.current = null;
+    rawMicrophoneStreamRef.current = null;
     microphoneStreamRef.current = null;
+    micGainRef.current = null;
+    micAudioContextRef.current = null;
     hasJoinedCallRef.current = false;
     isJoiningCallRef.current = false;
     localSocketIdRef.current = '';
@@ -395,13 +503,49 @@ export default function VideoCallPanel({
 
   const toggleMic = () => {
     const next = !isMicOn;
-    const micStream = microphoneStreamRef.current || microphoneStream;
-    micStream?.getAudioTracks().forEach((track) => {
-      track.enabled = next;
-    });
+    micGainRef.current?.gain.setTargetAtTime(next ? micVolume : 0, micAudioContextRef.current?.currentTime || 0, 0.02);
     setIsMicOn(next);
     flashLocalBadge(next ? 'Mic on' : 'Muted');
     socket.emit('call:media-state', { roomCode, state: { micOn: next, camOn: isCamOn } });
+  };
+
+  const flipCamera = async () => {
+    if (videoInputs.length <= 1) return;
+    const nextIndex = (cameraIndex + 1) % videoInputs.length;
+    const nextDevice = videoInputs[nextIndex];
+    const nextStream = await navigator.mediaDevices.getUserMedia({
+      video: nextDevice.deviceId
+        ? { deviceId: { exact: nextDevice.deviceId } }
+        : { facingMode: { exact: nextIndex % 2 === 0 ? 'user' : 'environment' } },
+      audio: false,
+    });
+    const newTrack = nextStream.getVideoTracks()[0];
+    const oldTrack = localStreamRef.current?.getVideoTracks()[0];
+    if (!newTrack) return;
+
+    await Promise.all(Array.from(callPeersRef.current.values()).map(async (peer) => {
+      const sender = peer.pc.getSenders().find((item) => item.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+        await applySenderBitrate(sender);
+      }
+    }));
+
+    localStreamRef.current = new MediaStream([newTrack]);
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => null);
+    }
+    oldTrack?.stop();
+    setCameraIndex(nextIndex);
+    flashLocalBadge('Camera flipped');
+  };
+
+  const syncNow = () => {
+    const now = Date.now();
+    if (now - lastSyncClickRef.current < 1000) return;
+    lastSyncClickRef.current = now;
+    window.dispatchEvent(new CustomEvent('watchparty:sync-now', { detail: { force: true } }));
   };
 
   const toggleCam = () => {
@@ -476,6 +620,7 @@ export default function VideoCallPanel({
       if (!hasJoinedCallRef.current && callPeersRef.current.size === 0) return;
       callPeersRef.current.forEach((peer) => {
         if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
+        if (peer.statsTimer) window.clearInterval(peer.statsTimer);
         peer.pc.close();
       });
       callPeersRef.current.clear();
@@ -625,14 +770,6 @@ export default function VideoCallPanel({
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
           Call and watch audio are mixed through the room audio server. Headphones are recommended.
         </p>
-        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: '0.82rem', marginBottom: 12 }}>
-          <input
-            type="checkbox"
-            checked={advancedAudio}
-            onChange={(event) => setAdvancedAudio(event.target.checked)}
-          />
-          Advanced audio mode (turn off echo cleanup)
-        </label>
         <button className="button" onClick={joinCall} style={{ width: '100%' }}>
           Join Call
         </button>
@@ -691,9 +828,15 @@ export default function VideoCallPanel({
         </div>
 
         {peers.map((peer) => (
-          <PeerVideo key={peer.socketId} peer={peer} />
+          <RemoteVideoTile key={peer.socketId} peerId={peer.socketId} peer={peer} />
         ))}
       </div>
+
+      {syncToast && (
+        <div style={{ marginBottom: 12, color: 'var(--primary)', fontSize: '0.82rem', fontWeight: 700 }}>
+          {syncToast}
+        </div>
+      )}
 
       {audioSupportWarning && (
         <div className="call-audio-warning" style={{ marginBottom: 12, color: '#f59e0b', fontSize: '0.82rem', lineHeight: 1.4 }}>
@@ -740,6 +883,24 @@ export default function VideoCallPanel({
         >
           <CameraIcon off={!isCamOn} />
           {isCamOn ? 'Hide camera' : 'Show camera'}
+        </button>
+        {videoInputs.length > 1 && (
+          <button
+            className="button button-secondary"
+            onClick={flipCamera}
+            style={{ flex: 1, padding: '9px', fontSize: '0.85rem' }}
+          >
+            <CameraIcon />
+            Flip camera
+          </button>
+        )}
+        <button
+          className="button button-secondary"
+          onClick={syncNow}
+          style={{ flex: 1, padding: '9px', fontSize: '0.85rem' }}
+        >
+          <SpeakerIcon />
+          Sync Now
         </button>
         <button
           className="button button-secondary"
@@ -1114,18 +1275,19 @@ function VolumeSlider({
   );
 }
 
-function PeerVideo({ peer }: { peer: PeerState }) {
+function RemoteVideoTile({ peerId, peer }: { peerId: string; peer: PeerState }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const attachedStreamRef = useRef<MediaStream | null>(null);
   const showConnectionStatus = peer.status !== 'Connected';
 
   useEffect(() => {
     if (!peer.stream) return;
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = peer.stream;
-      videoRef.current.play().catch(() => null);
-    }
-  }, [peer.stream]);
+    const video = videoRef.current;
+    if (!video || attachedStreamRef.current === peer.stream) return;
+    attachedStreamRef.current = peer.stream;
+    video.srcObject = peer.stream;
+    video.play().catch(() => null);
+  }, [peer.stream, peerId]);
 
   return (
     <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>

@@ -370,6 +370,130 @@ textarea {
   position: relative;
 }
 
+.fullscreen-layout-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 8;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fullscreen-mode-toggle {
+  display: inline-flex;
+  border: 2px solid var(--outline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.fullscreen-mode-toggle button {
+  width: 34px;
+  min-height: 32px;
+  border: 0;
+  border-right: 1px solid var(--outline);
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.fullscreen-mode-toggle button:last-child {
+  border-right: 0;
+}
+
+.fullscreen-mode-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.room-watch-layout.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  padding: 12px;
+  background: #050505;
+  display: grid;
+  gap: 10px;
+}
+
+.room-watch-layout.is-fullscreen .watch-column {
+  height: 100%;
+  display: grid;
+  align-content: stretch;
+}
+
+.room-watch-layout.is-fullscreen .watch-stage,
+.room-watch-layout.is-fullscreen .player-stack,
+.room-watch-layout.is-fullscreen .player-shell,
+.room-watch-layout.is-fullscreen .player-frame {
+  height: 100%;
+}
+
+.room-watch-layout.is-fullscreen .player-frame,
+.room-watch-layout.is-fullscreen .local-video-frame {
+  border-radius: 0;
+}
+
+.room-watch-layout.fullscreen-side {
+  grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
+}
+
+.room-watch-layout.fullscreen-cinema {
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
+}
+
+.room-watch-layout.fullscreen-cinema .room-side-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-watch-layout.fullscreen-cinema .chat-panel,
+.room-watch-layout.fullscreen-cinema .room-side-column > .card.glass:not(.video-call-card) {
+  display: none;
+}
+
+.room-watch-layout.fullscreen-cinema .video-call-card {
+  max-height: 28vh;
+  overflow: auto;
+}
+
+.room-watch-layout.fullscreen-overlay {
+  grid-template-columns: 1fr;
+}
+
+.room-watch-layout.fullscreen-overlay .room-side-column {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: min(280px, calc(100vw - 32px));
+  z-index: 9;
+}
+
+.room-watch-layout.fullscreen-overlay .chat-panel,
+.room-watch-layout.fullscreen-overlay .room-side-column > .card.glass:not(.video-call-card),
+.room-watch-layout.fullscreen-overlay .call-audio-controls,
+.room-watch-layout.fullscreen-overlay .video-call-actions,
+.room-watch-layout.fullscreen-overlay .video-call-header {
+  display: none !important;
+}
+
+.room-watch-layout.fullscreen-overlay .video-call-card {
+  padding: 8px !important;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.room-watch-layout.fullscreen-overlay .video-call-grid {
+  grid-template-columns: repeat(2, minmax(76px, 1fr)) !important;
+}
+
+.room-watch-layout.fullscreen-overlay .video-call-tile {
+  border-radius: 999px !important;
+  aspect-ratio: 1 / 1 !important;
+}
+
 .watch-stage .player-shell,
 .watch-stage .player-frame,
 .watch-stage .local-video-frame {

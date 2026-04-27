@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { socket } from '@/lib/socket';
@@ -16,8 +16,10 @@ import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
 type SourceTab = 'youtube' | 'url' | 'localStream';
+type FullscreenLayout = 'side' | 'cinema' | 'overlay';
 
 const FRAME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/allow-x-frame-options/jfjdfokifdlmbkbncmcfbcobggohdnif';
+const FULLSCREEN_LAYOUT_KEY = 'watchparty.fullscreenLayout';
 
 export default function RoomPage() {
   const params = useParams();
@@ -43,6 +45,9 @@ export default function RoomPage() {
   const [titleDraft, setTitleDraft] = useState('');
   const [connectionToast, setConnectionToast] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [fullscreenLayout, setFullscreenLayout] = useState<FullscreenLayout>('side');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const watchLayoutRef = useRef<HTMLDivElement | null>(null);
 
   const guestId = guest?.guestId ?? '';
   const userName = guest?.displayName ?? 'Guest';
@@ -141,6 +146,28 @@ export default function RoomPage() {
       socket.io.off('reconnect', handleReconnect);
     };
   }, [code, guestId, router, userName]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(FULLSCREEN_LAYOUT_KEY);
+    if (saved === 'side' || saved === 'cinema' || saved === 'overlay') setFullscreenLayout(saved);
+
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === watchLayoutRef.current);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (document.fullscreenElement !== watchLayoutRef.current) return;
+      if (event.key === '1') setFullscreenMode('side');
+      if (event.key === '2') setFullscreenMode('cinema');
+      if (event.key === '3') setFullscreenMode('overlay');
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     if (!room) return;
@@ -275,6 +302,19 @@ export default function RoomPage() {
     setSourceTab(tab);
     setSourceMessage('');
     setShowSourceModal(true);
+  };
+
+  const setFullscreenMode = (mode: FullscreenLayout) => {
+    setFullscreenLayout(mode);
+    window.localStorage.setItem(FULLSCREEN_LAYOUT_KEY, mode);
+  };
+
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => null);
+      return;
+    }
+    await watchLayoutRef.current?.requestFullscreen?.().catch(() => null);
   };
 
   const openFrameExtensionPage = () => {
@@ -561,7 +601,10 @@ export default function RoomPage() {
         </div>
       )}
 
-      <div className={`row room-watch-layout ${showCall ? 'has-call' : ''}`}>
+      <div
+        ref={watchLayoutRef}
+        className={`row room-watch-layout ${showCall ? 'has-call' : ''} ${isFullscreen ? `is-fullscreen fullscreen-${fullscreenLayout}` : ''}`}
+      >
         <div
           className="content-column watch-column"
           onDragOver={(e) => {
@@ -576,6 +619,18 @@ export default function RoomPage() {
           }}
         >
           <div className="watch-stage" data-watch-stage>
+            <div className="fullscreen-layout-controls">
+              <button className="button button-secondary" onClick={toggleFullscreen}>
+                {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              </button>
+              {isFullscreen && (
+                <div className="fullscreen-mode-toggle" role="group" aria-label="Fullscreen layout">
+                  <button className={fullscreenLayout === 'side' ? 'active' : ''} onClick={() => setFullscreenMode('side')}>1</button>
+                  <button className={fullscreenLayout === 'cinema' ? 'active' : ''} onClick={() => setFullscreenMode('cinema')}>2</button>
+                  <button className={fullscreenLayout === 'overlay' ? 'active' : ''} onClick={() => setFullscreenMode('overlay')}>3</button>
+                </div>
+              )}
+            </div>
             {activeSourceType ? (
               <RoomPlayer
                 roomCode={code}
