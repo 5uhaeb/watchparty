@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WatchParty</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>WatchParty</h1>
+  <label>
+    Room code
+    <input id="roomCode" placeholder="ABC123" autocomplete="off">
+  </label>
+  <label>
+    Name
+    <input id="displayName" placeholder="Guest" autocomplete="off">
+  </label>
+  <label>
+    Socket URL
+    <input id="socketUrl" placeholder="https://watchparty-6a3e.onrender.com">
+  </label>
+  <label>
+    API URL
+    <input id="apiUrl" placeholder="https://watchparty-6a3e.onrender.com/api">
+  </label>
+  <button id="save">Save and connect</button>
+  <p id="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -11,6 +11,8 @@ app.set('trust proxy', 1);
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (origin === process.env.CLIENT_URL) return true;
+  if (/^chrome-extension:\/\//.test(origin)) return true;
+  if (/^moz-extension:\/\//.test(origin)) return true;
   return false;
 }
 

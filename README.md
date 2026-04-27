@@ -15,9 +15,16 @@ This starter supports:
 - local file playback metadata sync
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
 - HYPERION.EXE as an embedded local room game source
+- a Chrome/Edge companion extension for Hotstar/JioHotstar page overlays
 - anonymous guest identity with a signed httpOnly cookie
 
 OTT/browser-extension sync is disabled. The current focus is the in-room video call, local streaming, and Janus room audio.
+
+## Hotstar/JioHotstar companion extension
+
+The `extension/` folder contains a Manifest V3 companion extension that works like a party overlay on the OTT page itself. It injects chat, reactions, participant count, and playback sync controls on Hotstar/JioHotstar pages while the video remains on the provider site. It does not frame, capture, download, rebroadcast, or bypass protected media.
+
+Load it from `chrome://extensions` with Developer mode, then set the WatchParty room code and backend URLs from the extension popup.
 
 ## Embedded games
 

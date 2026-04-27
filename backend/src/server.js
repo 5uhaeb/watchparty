@@ -17,7 +17,9 @@ const io = new Server(server, {
     origin(origin, callback) {
       if (
         !origin ||
-        origin === process.env.CLIENT_URL
+        origin === process.env.CLIENT_URL ||
+        /^chrome-extension:\/\//.test(origin) ||
+        /^moz-extension:\/\//.test(origin)
       ) {
         callback(null, true);
         return;

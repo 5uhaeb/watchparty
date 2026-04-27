@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "WatchParty Companion",
+  "version": "0.1.0",
+  "description": "Watch Hotstar with a WatchParty room overlay for chat, reactions, and playback sync.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://*.hotstar.com/*",
+    "https://*.jiohotstar.com/*",
+    "https://watchparty-6a3e.onrender.com/*",
+    "http://localhost:5000/*"
+  ],
+  "action": {
+    "default_title": "WatchParty",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.hotstar.com/*",
+        "https://*.jiohotstar.com/*"
+      ],
+      "js": ["vendor/socket.io.min.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
