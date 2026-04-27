@@ -104,14 +104,50 @@ function extractYouTubeVideoId(rawUrl) {
   return null;
 }
 
+function normalizeHttpUrl(rawUrl) {
+  const value = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!value || value.length > 1000) throw new Error('Enter a valid URL');
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Enter a valid URL');
+  }
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Only HTTP and HTTPS URLs are supported');
+  }
+
+  return url.toString();
+}
+
+function isDirectMediaUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(?:$|[?#])/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeSource(payload, socket) {
   if (!payload || payload.type === 'clear') return null;
 
   if (payload.type === 'youtube') {
-    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+    const url = normalizeHttpUrl(payload.url);
     const videoId = extractYouTubeVideoId(url);
     if (!videoId) throw new Error('Enter a valid YouTube URL');
     return { type: 'youtube', url, videoId };
+  }
+
+  if (payload.type === 'url') {
+    const url = normalizeHttpUrl(payload.url);
+    return {
+      type: 'url',
+      url,
+      mode: isDirectMediaUrl(url) ? 'media' : 'embed',
+    };
   }
 
   if (payload.type === 'localStream') {

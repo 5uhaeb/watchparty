@@ -14,7 +14,7 @@ import FileError from '@/components/FileError';
 import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
-type SourceTab = 'youtube' | 'localStream';
+type SourceTab = 'youtube' | 'url' | 'localStream';
 
 export default function RoomPage() {
   const params = useParams();
@@ -56,7 +56,7 @@ export default function RoomPage() {
   const activeSourceData = localStreamFile
     ? { fileName: localStreamFile.name, sizeBytes: localStreamFile.size }
     : source;
-  const activeSourceUrl = source?.type === 'youtube' ? source.url : undefined;
+  const activeSourceUrl = source?.type === 'youtube' || source?.type === 'url' ? source.url : undefined;
 
   useEffect(() => {
     if (!code) return;
@@ -142,7 +142,7 @@ export default function RoomPage() {
   useEffect(() => {
     if (!room) return;
     setTitleDraft(room.title || 'Untitled room');
-    if (source?.type === 'youtube') setSourceUrlDraft(source.url || '');
+    if (source?.type === 'youtube' || source?.type === 'url') setSourceUrlDraft(source.url || '');
     if (source?.type !== 'localStream') setLocalStreamFile(null);
   }, [room, source?.type, source?.url]);
 
@@ -224,11 +224,11 @@ export default function RoomPage() {
 
     const url = sourceUrlDraft.trim();
     if (!url) {
-      setSourceMessage('Paste a YouTube URL.');
+      setSourceMessage(sourceTab === 'youtube' ? 'Paste a YouTube URL.' : 'Paste a video, stream, or embed URL.');
       return;
     }
 
-    socket.emit('room:setSource', { type: 'youtube', url });
+    socket.emit('room:setSource', { type: sourceTab, url });
     setLocalStreamFile(null);
     setShowSourceModal(false);
   };
@@ -306,6 +306,12 @@ export default function RoomPage() {
           YouTube
         </button>
         <button
+          className={`button ${sourceTab === 'url' ? '' : 'button-secondary'}`}
+          onClick={() => setSourceTab('url')}
+        >
+          Any URL
+        </button>
+        <button
           className={`button ${sourceTab === 'localStream' ? '' : 'button-secondary'}`}
           onClick={() => setSourceTab('localStream')}
         >
@@ -360,14 +366,21 @@ export default function RoomPage() {
         </label>
       ) : (
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>YouTube URL</span>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            {sourceTab === 'youtube' ? 'YouTube URL' : 'Video, stream, or embed URL'}
+          </span>
           <input
             className="input"
             value={sourceUrlDraft}
             onChange={(event) => setSourceUrlDraft(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && submitSource()}
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder={sourceTab === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/embed/...'}
           />
+          {sourceTab === 'url' && (
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
+              Direct media files play in the video player. Page/embed URLs open inside an iframe when the provider allows it.
+            </span>
+          )}
         </label>
       )}
 
@@ -376,7 +389,7 @@ export default function RoomPage() {
         onClick={submitSource}
         disabled={sourceTab === 'localStream' && (fileProbing || !localStreamFileDraft || !fileProbeResult?.success)}
       >
-        {sourceTab === 'localStream' ? 'Start streaming' : 'Play YouTube'}
+        {sourceTab === 'localStream' ? 'Start streaming' : sourceTab === 'url' ? 'Play URL' : 'Play YouTube'}
       </button>
       {source && (
         <button className="button button-secondary" onClick={clearSource}>
@@ -466,7 +479,7 @@ export default function RoomPage() {
             {copied ? 'Copied' : 'Invite link'}
           </button>
           {canChangeSource && (
-            <button className="button button-secondary" onClick={() => openSourcePicker(source?.type === 'localStream' ? 'localStream' : 'youtube')}>
+            <button className="button button-secondary" onClick={() => openSourcePicker(source?.type === 'localStream' ? 'localStream' : source?.type === 'url' ? 'url' : 'youtube')}>
               Change Source
             </button>
           )}
@@ -564,6 +577,9 @@ export default function RoomPage() {
                       <div className="player-toolbar" style={{ justifyContent: 'center' }}>
                         <button className="button" onClick={() => openSourcePicker('youtube')}>
                           Paste YouTube URL
+                        </button>
+                        <button className="button button-secondary" onClick={() => openSourcePicker('url')}>
+                          Paste any URL
                         </button>
                         <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
                           Play local file

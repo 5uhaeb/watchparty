@@ -43,8 +43,14 @@ export default function RoomPlayer({
   const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
   const [localFileName, setLocalFileName] = useState<string | null>(null);
 
-  const adapterType = sourceType === 'local' || sourceType === 'file' ? 'file' : sourceType;
-  const effectiveUrl = adapterType === 'file' ? localBlobUrl || videoUrl : videoUrl;
+  const adapterType = sourceType === 'local' || sourceType === 'file'
+    ? 'file'
+    : sourceType === 'url' && sourceData?.mode === 'embed'
+      ? 'embed'
+      : sourceType;
+  const effectiveUrl = adapterType === 'file'
+    ? localBlobUrl || videoUrl
+    : videoUrl || sourceData?.url;
 
   useEffect(() => {
     return () => {
@@ -101,7 +107,7 @@ export default function RoomPlayer({
   );
 
   useEffect(() => {
-    if (adapterType === 'localStream') return;
+    if (adapterType === 'localStream' || adapterType === 'embed') return;
 
     const onPlay = (payload: TimedPlayback) => {
       if (payload.byUserId !== currentUserId) applyPlay(payload);
@@ -178,7 +184,7 @@ export default function RoomPlayer({
   }, [adapterType, applyPause, applyPlay, applySeek, currentUserId, roomCode, withRemoteGuard]);
 
   useEffect(() => {
-    if (!isHost || adapterType === 'localStream') return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed') return;
 
     const intervalId = window.setInterval(() => {
       socket.emit('player:heartbeat', {
@@ -191,7 +197,7 @@ export default function RoomPlayer({
   }, [adapterType, currentPosition, isHost, roomCode]);
 
   useEffect(() => {
-    if (!isHost || adapterType === 'localStream') return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed') return;
 
     const intervalId = window.setInterval(() => {
       if (!playerRef.current || isApplyingRemoteRef.current) return;
@@ -218,7 +224,7 @@ export default function RoomPlayer({
     const previousState = lastStateRef.current;
     lastStateRef.current = state;
 
-    if (!isHost || adapterType === 'localStream' || isApplyingRemoteRef.current) return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed' || isApplyingRemoteRef.current) return;
 
     const positionSec = currentPosition();
     if (state === 'playing' && previousState !== 'playing') {
@@ -314,6 +320,32 @@ export default function RoomPlayer({
     );
   }
 
+  if (adapterType === 'embed') {
+    return (
+      <div className="player-stack">
+        <div className="player-toolbar">
+          <a className="button button-secondary" href={effectiveUrl || '#'} target="_blank" rel="noopener noreferrer">
+            Open URL
+          </a>
+        </div>
+        <div className="player-shell" data-player-shell>
+          <iframe
+            src={effectiveUrl || ''}
+            className="player-frame"
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+            allowFullScreen
+            referrerPolicy="no-referrer-when-downgrade"
+            style={{ border: 0, display: 'block' }}
+            title="Embedded video"
+          />
+        </div>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.4 }}>
+          Embedded pages control their own playback. If the provider blocks embedding, use Open URL.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="player-stack">
       <div className="player-toolbar">
@@ -321,6 +353,18 @@ export default function RoomPlayer({
           <button onClick={syncNow} style={{ padding: '8px 14px' }}>
             Sync Now
           </button>
+        )}
+        {sourceType === 'url' && (
+          <>
+            <a className="button button-secondary" href={effectiveUrl || '#'} target="_blank" rel="noopener noreferrer">
+              Open URL
+            </a>
+            {isDownloadableMediaUrl(effectiveUrl || '') && (
+              <a className="button button-secondary" href={effectiveUrl || '#'} download rel="noopener noreferrer">
+                Download media
+              </a>
+            )}
+          </>
         )}
       </div>
 
@@ -349,4 +393,13 @@ export default function RoomPlayer({
       </div>
     </div>
   );
+}
+
+function isDownloadableMediaUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(?:$|[?#])/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
 }
