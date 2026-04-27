@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { ClipboardEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { socket } from '@/lib/socket';
 import { getRoom } from '@/lib/api';
@@ -15,6 +16,8 @@ import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
 type SourceTab = 'youtube' | 'url' | 'localStream';
+
+const FRAME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/allow-x-frame-options/jfjdfokifdlmbkbncmcfbcobggohdnif';
 
 export default function RoomPage() {
   const params = useParams();
@@ -274,6 +277,23 @@ export default function RoomPage() {
     setShowSourceModal(true);
   };
 
+  const openFrameExtensionPage = () => {
+    setSourceMessage('If this page blocks embedding, install/enable the Chrome extension, reload this room, then press Play URL again.');
+    window.open(FRAME_EXTENSION_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSourceUrlPaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    if (sourceTab !== 'url') return;
+    const pastedUrl = event.clipboardData.getData('text').trim();
+    try {
+      const parsed = new URL(pastedUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return;
+      openFrameExtensionPage();
+    } catch {
+      // Ignore non-URL clipboard text.
+    }
+  };
+
   const handleFileDropped = async (file: File) => {
     if (!canChangeSource) {
       setStreamNotice('Only the host can change the source.');
@@ -373,9 +393,20 @@ export default function RoomPage() {
             className="input"
             value={sourceUrlDraft}
             onChange={(event) => setSourceUrlDraft(event.target.value)}
+            onPaste={handleSourceUrlPaste}
             onKeyDown={(event) => event.key === 'Enter' && submitSource()}
             placeholder={sourceTab === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/embed/...'}
           />
+          {sourceTab === 'url' && (
+            <div style={{ display: 'grid', gap: 8, color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: 1.4 }}>
+              <span>
+                Page/embed URLs may be blocked by browser frame protection. If the embed stays blank, install the helper extension, enable it, reload this room, then try the URL again.
+              </span>
+              <button type="button" className="button button-secondary" onClick={openFrameExtensionPage}>
+                Open Chrome extension
+              </button>
+            </div>
+          )}
         </label>
       )}
 
