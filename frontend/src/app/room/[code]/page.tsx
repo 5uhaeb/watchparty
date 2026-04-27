@@ -376,11 +376,6 @@ export default function RoomPage() {
             onKeyDown={(event) => event.key === 'Enter' && submitSource()}
             placeholder={sourceTab === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/embed/...'}
           />
-          {sourceTab === 'url' && (
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
-              Direct media files play in the video player. Page/embed URLs open inside an iframe when the provider allows it.
-            </span>
-          )}
         </label>
       )}
 

@@ -50,3 +50,17 @@ export function getIceServers(): RTCIceServer[] {
 }
 
 export const ICE_SERVERS = getIceServers();
+
+export function getPeerConnectionConfig(): RTCConfiguration {
+  const policy = (
+    process.env.NEXT_PUBLIC_ICE_TRANSPORT_POLICY ||
+    process.env.NEXT_PUBLIC_FORCE_TURN ||
+    'relay'
+  ).toLowerCase();
+
+  return {
+    iceServers: ICE_SERVERS,
+    iceTransportPolicy: policy === 'all' || policy === 'false' ? 'all' : 'relay',
+    bundlePolicy: 'max-bundle',
+  };
+}

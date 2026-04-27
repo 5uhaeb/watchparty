@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
-import { ICE_SERVERS } from '@/lib/iceServers';
+import { getPeerConnectionConfig } from '@/lib/iceServers';
 import { formatFileSize, formatDuration } from '@/lib/formats';
 
 type LocalStreamSource = {
@@ -106,7 +106,7 @@ export default function LocalStreamPlayer({
 
       peersRef.current.get(viewerSocketId)?.close();
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection(getPeerConnectionConfig());
       peersRef.current.set(viewerSocketId, pc);
       setViewerCount(peersRef.current.size);
 
@@ -278,7 +278,7 @@ export default function LocalStreamPlayer({
   useEffect(() => {
     if (isHost || !sourceData?.hostSocketId) return;
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection(getPeerConnectionConfig());
     viewerPeerRef.current = pc;
     setStatus('Connecting...');
 

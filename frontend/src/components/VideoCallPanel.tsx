@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
-import { ICE_SERVERS } from '@/lib/iceServers';
+import { getPeerConnectionConfig } from '@/lib/iceServers';
 import RoomAudioControls from '@/components/RoomAudioControls';
 
 interface PeerState {
@@ -208,7 +208,7 @@ export default function VideoCallPanel({
     }
 
     ensurePeer(member.socketId, member.userId, member.name);
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection(getPeerConnectionConfig());
     const remoteStream = new MediaStream();
     const localSocketId = localSocketIdRef.current || socket.id || '';
     const peer: CallPeer = {

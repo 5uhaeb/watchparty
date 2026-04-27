@@ -1,6 +1,6 @@
 'use client';
 
-import { ICE_SERVERS } from '@/lib/iceServers';
+import { getPeerConnectionConfig } from '@/lib/iceServers';
 
 type JanusReply = {
   janus: string;
@@ -266,7 +266,7 @@ export class JanusAudioBridgeClient {
       })
     );
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection(getPeerConnectionConfig());
     handle.pc = pc;
     pc.onicecandidate = (event) => {
       this.trickle(handle, event.candidate).catch(() => null);
