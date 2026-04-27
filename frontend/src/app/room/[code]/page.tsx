@@ -15,7 +15,7 @@ import FileError from '@/components/FileError';
 import { useGuest } from '@/components/GuestProvider';
 import { guestAuthHeaders } from '@/lib/guestToken';
 
-type SourceTab = 'youtube' | 'url' | 'localStream';
+type SourceTab = 'youtube' | 'url' | 'localStream' | 'game';
 type FullscreenLayout = 'side' | 'cinema' | 'overlay';
 
 const FRAME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/allow-x-frame-options/jfjdfokifdlmbkbncmcfbcobggohdnif';
@@ -64,7 +64,7 @@ export default function RoomPage() {
   const activeSourceData = localStreamFile
     ? { fileName: localStreamFile.name, sizeBytes: localStreamFile.size }
     : source;
-  const activeSourceUrl = source?.type === 'youtube' || source?.type === 'url' ? source.url : undefined;
+  const activeSourceUrl = source?.type === 'youtube' || source?.type === 'url' || source?.type === 'game' ? source.url : undefined;
 
   useEffect(() => {
     if (!code) return;
@@ -237,6 +237,13 @@ export default function RoomPage() {
     setSourceMessage('');
 
     if (!canChangeSource) return;
+    if (sourceTab === 'game') {
+      socket.emit('room:setSource', { type: 'game', gameId: 'hyperion' });
+      setLocalStreamFile(null);
+      setShowSourceModal(false);
+      return;
+    }
+
     if (sourceTab === 'localStream') {
       if (!localStreamFileDraft) {
         setSourceMessage('Choose a local video file to stream.');
@@ -377,9 +384,20 @@ export default function RoomPage() {
         >
           Local file
         </button>
+        <button
+          className={`button ${sourceTab === 'game' ? '' : 'button-secondary'}`}
+          onClick={() => setSourceTab('game')}
+        >
+          Hyperion
+        </button>
       </div>
 
-      {sourceTab === 'localStream' ? (
+      {sourceTab === 'game' ? (
+        <div style={{ display: 'grid', gap: 8, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.45 }}>
+          <strong style={{ color: 'var(--text)' }}>HYPERION.EXE</strong>
+          <span>Launch the neon side-scrolling shooter inside the room. Each player controls their own local run while chat and call stay available.</span>
+        </div>
+      ) : sourceTab === 'localStream' ? (
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Stream local file</span>
           <input
@@ -455,7 +473,7 @@ export default function RoomPage() {
         onClick={submitSource}
         disabled={sourceTab === 'localStream' && (fileProbing || !localStreamFileDraft || !fileProbeResult?.success)}
       >
-        {sourceTab === 'localStream' ? 'Start streaming' : sourceTab === 'url' ? 'Play URL' : 'Play YouTube'}
+        {sourceTab === 'localStream' ? 'Start streaming' : sourceTab === 'game' ? 'Launch Hyperion' : sourceTab === 'url' ? 'Play URL' : 'Play YouTube'}
       </button>
       {source && (
         <button className="button button-secondary" onClick={clearSource}>
@@ -545,7 +563,7 @@ export default function RoomPage() {
             {copied ? 'Copied' : 'Invite link'}
           </button>
           {canChangeSource && (
-            <button className="button button-secondary" onClick={() => openSourcePicker(source?.type === 'localStream' ? 'localStream' : source?.type === 'url' ? 'url' : 'youtube')}>
+            <button className="button button-secondary" onClick={() => openSourcePicker(source?.type === 'game' ? 'game' : source?.type === 'localStream' ? 'localStream' : source?.type === 'url' ? 'url' : 'youtube')}>
               Change Source
             </button>
           )}
@@ -665,6 +683,9 @@ export default function RoomPage() {
                         <button className="button button-secondary" onClick={() => openSourcePicker('localStream')}>
                           Play local file
                         </button>
+                        <button className="button button-secondary" onClick={() => openSourcePicker('game')}>
+                          Launch Hyperion
+                        </button>
                       </div>
                     </>
                   ) : (
@@ -683,6 +704,8 @@ export default function RoomPage() {
               <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem', wordBreak: 'break-all' }}>
                 {source.type === 'localStream'
                   ? `${source.fileName || 'Local stream'} (${formatFileSize(source.sizeBytes)}, ${formatDuration(source.durationSec)})`
+                  : source.type === 'game'
+                    ? source.title || 'HYPERION.EXE'
                   : source.url}
               </p>
               {streamNotice && (
@@ -694,6 +717,8 @@ export default function RoomPage() {
                 <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                   {source.type === 'localStream'
                     ? 'The stream is controlled by the host.'
+                    : source.type === 'game'
+                      ? 'Hyperion runs locally for each participant.'
                     : 'The host controls playback. Heartbeats keep this player in sync.'}
                 </p>
               )}

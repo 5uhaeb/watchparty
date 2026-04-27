@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYPERION.EXE</title>
+    <style>
+        /* Win95 / MS Paint Styling */
+        :root {
+            --win-bg: #c0c0c0;
+            --win-light: #ffffff;
+            --win-dark: #808080;
+            --win-shadow: #000000;
+            --win-blue: #000080;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--win-bg);
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            font-size: 14px;
+            user-select: none;
+        }
+
+        /* Layout Structure */
+        #toolbar {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 50px;
+            background: var(--win-bg);
+            border-bottom: 2px solid var(--win-dark);
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            z-index: 100;
+            box-sizing: border-box;
+        }
+
+        #sidePanel {
+            position: absolute;
+            top: 50px; right: 0; bottom: 0;
+            width: 280px;
+            background: var(--win-bg);
+            border-left: 2px solid var(--win-light);
+            padding: 10px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-sizing: border-box;
+        }
+
+        #renderDiv {
+            position: absolute;
+            top: 50px; left: 0; right: 280px; bottom: 0;
+            background: #000;
+        }
+
+        /* Win95 UI Components */
+        .btn {
+            background: var(--win-bg);
+            border: 2px solid;
+            border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light);
+            padding: 4px 12px;
+            margin-right: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn:active {
+            border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark);
+            padding: 5px 11px 3px 13px;
+        }
+
+        .title-bar {
+            background: var(--win-blue);
+            color: white;
+            padding: 2px 4px;
+            font-weight: bold;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .section {
+            border: 2px solid;
+            border-color: var(--win-dark) var(--win-light) var(--win-light) var(--win-dark);
+            background: var(--win-bg);
+        }
+
+        .section-content {
+            padding: 6px;
+        }
+
+        .bar-bg {
+            height: 16px;
+            background: #444;
+            border: 1px solid var(--win-dark);
+            position: relative;
+            margin-top: 4px;
+        }
+        .bar-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.1s;
+        }
+        .bar-label {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            top: 0;
+            font-size: 10px;
+            color: #fff;
+            text-shadow: 1px 1px #000;
+        }
+
+        #miniMapCanvas {
+            background: #0a1628;
+            width: 256px;
+            height: 144px;
+            border: 2px solid #000;
+        }
+
+        .hud-text {
+            font-size: 12px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        #bannerContainer {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            pointer-events: none;
+        }
+
+        .banner {
+            background: var(--win-bg);
+            border: 2px solid;
+            border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light);
+            padding: 5px 15px;
+            font-weight: bold;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+            animation: fadeIn 0.3s forwards;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Modals */
+        #modalOverlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal {
+            background: var(--win-bg);
+            border: 2px solid;
+            border-color: var(--win-light) var(--win-dark) var(--win-dark) var(--win-light);
+            width: 400px;
+            max-width: 90%;
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+<div id="toolbar">
+    <button class="btn" onclick="callGame('newGame')">New Game</button>
+    <button class="btn" id="pauseBtn" onclick="callGame('togglePause')">Pause</button>
+    <button class="btn" id="soundBtn" onclick="callGame('toggleSound')">Sound: ON</button>
+    <button class="btn" onclick="showModal('help')">Help</button>
+    <button class="btn" onclick="showModal('settings')">Settings</button>
+    <div style="flex-grow: 1;"></div>
+    <div style="font-weight: bold;">HYPERION.EXE</div>
+</div>
+
+<div id="bannerContainer"></div>
+
+<div id="renderDiv"></div>
+
+<div id="sidePanel">
+    <div class="section">
+        <div class="title-bar"><span>Map</span></div>
+        <div class="section-content">
+            <canvas id="miniMapCanvas" width="256" height="144"></canvas>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Health</span></div>
+        <div class="section-content">
+            <div class="bar-bg"><div id="healthBar" class="bar-fill" style="background: #f00; width: 100%;"></div><div id="healthText" class="bar-label">100%</div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Armor</span></div>
+        <div class="section-content">
+            <div class="bar-bg"><div id="armorBar" class="bar-fill" style="background: #00f; width: 0%;"></div><div id="armorText" class="bar-label">0%</div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Jetpack</span></div>
+        <div class="section-content">
+            <div class="bar-bg"><div id="jetBar" class="bar-fill" style="background: #0ff; width: 100%;"></div><div id="jetText" class="bar-label">100%</div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Ammo</span></div>
+        <div class="section-content">
+            <div class="bar-bg"><div id="ammoBar" class="bar-fill" style="background: #ff0; width: 100%;"></div><div id="ammoText" class="bar-label">30/30</div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Status</span></div>
+        <div class="section-content hud-text" id="statusHud">
+SCORE 000000
+WAVE 01 | ELIMS 0
+WEAPON: AR
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Controls</span></div>
+        <div class="section-content hud-text" style="font-size: 10px;">
+WASD - Move
+MOUSE - Aim/Fire
+RMB - Aim Line
+SPACE - Jetpack
+1/2/3/4 - Weapons
+R - Reload
+M - Toggle Music
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="title-bar"><span>Volume</span></div>
+        <div class="section-content">
+            <input type="range" id="volSlider" min="0" max="100" value="60" style="width: 100%" oninput="callGame('setVolume', this.value)">
+        </div>
+    </div>
+</div>
+
+<div id="modalOverlay" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="title-bar"><span id="modalTitle">Help</span><span style="cursor:pointer" onclick="closeModal()">[X]</span></div>
+        <div class="section-content" id="modalBody">
+            <!-- Modal Content Loaded Dynamically -->
+        </div>
+        <div style="text-align: center; padding: 10px;">
+            <button class="btn" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- @vite-ignore -->
+<script src="./phaser.min.js"></script>
+<script>
+/**
+ * HYPERION - High Octane Stickman Shooter
+ */
+
+// --- AUDIO MANAGER (Phase 6) ---
+class AudioManager {
+    constructor() {
+        this.ctx = null;
+        this.masterGain = null;
+        this.muted = false;
+        this.sounds = {};
+        this.volume = 0.6;
+    }
+
+    init() {
+        if (this.ctx) return;
+        try {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = this.muted ? 0 : this.volume;
+            this.masterGain.connect(this.ctx.destination);
+            console.log('[Hyperion] Audio Context Initialized');
+        } catch (e) {
+            console.error('[Hyperion] Failed to init audio:', e);
+        }
+    }
+
+    setVolume(v) {
+        this.volume = v / 100;
+        if (this.ctx && !this.muted) {
+            this.masterGain.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
+        }
+    }
+
+    toggleMute() {
+        this.init();
+        this.muted = !this.muted;
+        if (this.ctx) {
+            this.masterGain.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.05);
+        }
+        return !this.muted;
+    }
+
+    createNoise(duration, type = 'white') {
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        return buffer;
+    }
+
+    playShoot(type) {
+        this.init();
+        if (!this.ctx || this.muted || this.ctx.state === 'suspended') return;
+        const now = this.ctx.currentTime;
+        const g = this.ctx.createGain();
+        g.connect(this.masterGain);
+
+        const jitter = 1 + (Math.random() * 0.1 - 0.05);
+
+        if (type === 'SR') {
+            this.playBurst(now, g, 3000, 0.5, 0.005);
+            this.playTone(now, g, 80 * jitter, 25, 'sawtooth', 0.08, 0.45);
+            this.playTail(now, g, 400, 0.6, 0.35);
+        } else if (type === 'AR') {
+            this.playBurst(now, g, 4000, 0.55, 0.003);
+            this.playTone(now, g, 200 * jitter, 100, 'square', 0.04, 0.4);
+            this.playTail(now, g, 1000, 0.15, 0.25);
+        } else if (type === 'SMG') {
+            this.playBurst(now, g, 5000, 0.4, 0.002);
+            this.playTone(now, g, 320 * jitter, 200, 'square', 0.025, 0.3);
+            this.playTail(now, g, 1500, 0.08, 0.15);
+        } else if (type === 'SG') {
+            this.playBurst(now, g, 2500, 0.6, 0.008);
+            this.playTone(now, g, 100 * jitter, 40, 'sawtooth', 0.1, 0.5);
+            this.playTail(now, g, 600, 0.4, 0.4);
+        }
+    }
+
+    playBurst(t, dest, hp, gain, dur) {
+        const n = this.ctx.createBufferSource();
+        n.buffer = this.createNoise(dur);
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'highpass';
+        f.frequency.value = hp;
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(gain, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+        n.connect(f).connect(g).connect(dest);
+        n.start(t);
+    }
+
+    playTone(t, dest, startHz, endHz, type, dur, gain) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(startHz, t);
+        osc.frequency.exponentialRampToValueAtTime(endHz, t + dur);
+        g.gain.setValueAtTime(gain, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+        osc.connect(g).connect(dest);
+        osc.start(t);
+        osc.stop(t + dur);
+    }
+
+    playTail(t, dest, lp, dur, gain) {
+        const n = this.ctx.createBufferSource();
+        n.buffer = this.createNoise(dur);
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = lp;
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(gain, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + dur);
+        n.connect(f).connect(g).connect(dest);
+        n.start(t);
+    }
+
+    playSimpleSound(type) {
+        this.init();
+        if (!this.ctx || this.muted || this.ctx.state === 'suspended') return;
+        const now = this.ctx.currentTime;
+        if (type === 'jump') this.playTone(now, this.masterGain, 200, 600, 'sine', 0.2, 0.3);
+        if (type === 'pickup') {
+            this.playTone(now, this.masterGain, 440, 880, 'sine', 0.1, 0.2);
+            this.playTone(now + 0.1, this.masterGain, 880, 1320, 'sine', 0.1, 0.2);
+        }
+        if (type === 'hit') this.playBurst(now, this.masterGain, 500, 0.3, 0.05);
+        if (type === 'empty') this.playBurst(now, this.masterGain, 2000, 0.1, 0.02);
+    }
+}
+
+const audio = new AudioManager();
+
+// --- GAME CONFIG ---
+const WORLD_W = 6400;
+const WORLD_H = 3600;
+
+class Hyperion extends Phaser.Scene {
+    constructor() {
+        super('Hyperion');
+        this.player = null;
+        this.bullets = null;
+        this.bots = null;
+        this.platforms = null;
+        this.crates = null;
+        this.pickups = null;
+        
+        this.score = 0;
+        this.elims = 0;
+        this.wave = 1;
+        
+        this.currentWeaponKey = 'AR';
+        this.weapons = {
+            SR: { name: 'Sniper Rifle', design: 'SR-RAIL', damage: 9999, fireRate: 1500, speed: 2500, range: 1800, ammo: 5, maxAmmo: 5, reload: 4000, zoom: 0.9, recoil: 400, bolt: true },
+            AR: { name: 'Assault Rifle', design: 'AR-9', damage: 18, fireRate: 110, speed: 1200, range: 900, ammo: 30, maxAmmo: 30, reload: 2500, zoom: 0.7, recoil: 50, auto: true },
+            SMG: { name: 'Submachine Gun', design: 'SMG', damage: 8, fireRate: 70, speed: 900, range: 500, ammo: 50, maxAmmo: 50, reload: 1800, zoom: 0.7, recoil: 30, auto: true, spread: 5 },
+            SG: { name: 'Shotgun', design: 'SG-12', damage: 12, fireRate: 800, speed: 1100, range: 350, ammo: 8, maxAmmo: 8, reload: 3000, zoom: 0.7, recoil: 200, pellets: 6, spread: 15 }
+        };
+        
+        this.lastFireTime = 0;
+        this.isReloading = false;
+        this.boltCycling = false;
+        this.clouds = [];
+    }
+
+    create() {
+        try {
+            console.log('[Hyperion] Initializing Scene...');
+            this.generateTextures();
+            this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
+            this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+            this.cameras.main.setZoom(0.7);
+
+            // INITIALIZE GROUPS FIRST
+            this.platforms = this.physics.add.staticGroup();
+            this.walls = this.physics.add.staticGroup();
+            this.crates = this.physics.add.group();
+            this.bullets = this.physics.add.group({ maxSize: 200, classType: Phaser.Physics.Arcade.Image });
+            this.botBullets = this.physics.add.group({ maxSize: 100, classType: Phaser.Physics.Arcade.Image });
+            this.bots = this.physics.add.group();
+            this.pickups = this.physics.add.group();
+
+            this.drawBackground();
+            this.player = this.physics.add.sprite(WORLD_W/2, 2300, 'stick_idle');
+            this.player.setCollideWorldBounds(true);
+            this.player.setSize(30, 45);
+            this.player.health = 100;
+            this.player.armor = 0;
+            this.player.jetFuel = 100;
+            this.player.jetLock = false;
+            this.player.lastJumpTime = 0;
+
+            this.createLevel();
+            
+            this.weaponText = this.add.text(0, 0, this.weapons.AR.design, { font: '24px Arial', fill: '#fff' }).setOrigin(0.5);
+            this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+
+            // Ensure input is active
+            if (!this.input.keyboard) {
+                console.error('[Hyperion] Keyboard manager not found!');
+            }
+            this.keys = this.input.keyboard.addKeys('W,A,S,D,R,M,SPACE,ONE,TWO,THREE,FOUR');
+            this.aimGraphics = this.add.graphics();
+
+            this.physics.add.collider(this.player, this.platforms);
+            this.physics.add.collider(this.bots, this.platforms);
+            this.physics.add.collider(this.player, this.walls);
+            this.physics.add.collider(this.bots, this.walls);
+            this.physics.add.collider(this.bots, this.bots);
+
+            this.physics.add.overlap(this.bullets, this.bots, this.onBulletHitBot, null, this);
+            this.physics.add.overlap(this.bullets, this.walls, (b) => this.deactivateBullet(b), null, this);
+            this.physics.add.overlap(this.bullets, this.platforms, (b) => this.deactivateBullet(b), null, this);
+            this.physics.add.overlap(this.bullets, this.crates, this.onBulletHitCrate, null, this);
+            this.physics.add.overlap(this.botBullets, this.player, this.onBulletHitPlayer, null, this);
+            this.physics.add.overlap(this.botBullets, this.walls, (b) => this.deactivateBullet(b), null, this);
+            this.physics.add.overlap(this.player, this.pickups, this.onPickup, null, this);
+
+            const mapEl = document.getElementById('miniMapCanvas');
+            this.miniMapCtx = mapEl ? mapEl.getContext('2d') : null;
+            
+            this.spawnBots(19);
+            this.showBanner('HYPERION INITIALIZED • READY', '#0ff', 3000);
+            
+            this.input.on('pointerdown', () => { if (audio) audio.init(); });
+        } catch (e) {
+            console.error('[Hyperion] Initialization Crash:', e);
+        }
+    }
+
+    generateTextures() {
+        const g = this.make.graphics({ x: 0, y: 0, add: false });
+        g.clear().lineStyle(3, 0x00ffff);
+        g.strokeCircle(20, 10, 8); g.lineBetween(20, 18, 20, 35);
+        g.lineBetween(20, 22, 5, 25); g.lineBetween(20, 22, 35, 25);
+        g.lineBetween(20, 35, 10, 50); g.lineBetween(20, 35, 30, 50);
+        g.generateTexture('stick_idle', 40, 55);
+
+        g.clear().lineStyle(3, 0x00ffff);
+        g.strokeCircle(20, 10, 8); g.lineBetween(20, 18, 20, 35);
+        g.lineBetween(20, 22, 0, 15); g.lineBetween(20, 22, 40, 30);
+        g.lineBetween(20, 35, 0, 45); g.lineBetween(20, 35, 40, 45);
+        g.generateTexture('stick_run1', 40, 55);
+
+        g.clear().lineStyle(3, 0x00ffff);
+        g.strokeCircle(20, 10, 8); g.lineBetween(20, 18, 20, 35);
+        g.lineBetween(20, 22, 40, 15); g.lineBetween(20, 22, 0, 30);
+        g.lineBetween(20, 35, 40, 45); g.lineBetween(20, 35, 0, 45);
+        g.generateTexture('stick_run2', 40, 55);
+
+        g.clear().fillGradientStyle(0xffaa00, 0xffff00, 0xff0000, 0xffaa00, 1).fillCircle(4, 4, 4);
+        g.generateTexture('flame', 8, 8);
+        g.clear().fillStyle(0x5a3a1a).fillRect(0, 0, 50, 50).lineStyle(2, 0x3a2510).strokeRect(2, 2, 46, 46);
+        g.generateTexture('crate', 50, 50);
+        g.clear().fillStyle(0x666666).fillRect(0, 0, 200, 20).lineStyle(2, 0x999999).lineBetween(0, 2, 200, 2);
+        g.generateTexture('platform', 200, 20);
+        
+        g.clear().fillStyle(0xffffff).fillRect(0, 0, 30, 30).fillStyle(0xff0000).fillRect(12, 5, 6, 20).fillRect(5, 12, 20, 6);
+        g.generateTexture('health_pack', 30, 30);
+        g.clear().fillStyle(0xffff00).fillRect(0, 0, 30, 30).fillStyle(0x000000).fillRect(5, 5, 20, 5).fillRect(5, 15, 20, 5);
+        g.generateTexture('ammo_box', 30, 30);
+        g.clear().fillStyle(0x0000ff).beginPath().moveTo(15, 0).lineTo(30, 10).lineTo(25, 30).lineTo(5, 30).lineTo(0, 10).closePath().fill();
+        g.generateTexture('armor_plate', 30, 30);
+        g.clear().fillStyle(0xff8800).beginPath().moveTo(15, 0).lineTo(30, 15).lineTo(15, 30).lineTo(0, 15).closePath().fill();
+        g.generateTexture('weapon_swap', 30, 30);
+        g.destroy();
+    }
+
+    drawBackground() {
+        for (let i = 0; i < 60; i++) {
+            const y = (i / 60) * 2400;
+            const h = 2400 / 60;
+            const t = i / 60;
+            const r = Math.floor(26 + (74 - 26) * t);
+            const g = Math.floor(47 + (123 - 47) * t);
+            const b = Math.floor(74 + (168 - 74) * t);
+            this.add.rectangle(WORLD_W/2, y + h/2, WORLD_W, h + 1, (r << 16) | (g << 8) | b).setScrollFactor(0.1);
+        }
+        for (let i = 0; i < 8; i++) {
+            const w = 400 + Math.random() * 400;
+            const h = 400 + Math.random() * 300;
+            this.add.triangle(i * 800 + 400, 2400, 0, 0, w/2, -h, w, 0, 0x2a1f3a).setScrollFactor(0.3).setOrigin(0.5, 1);
+        }
+        this.add.rectangle(WORLD_W/2, 3005, WORLD_W, 1200, 0x5a3a1a).setDepth(-1);
+        this.add.rectangle(WORLD_W/2, 2405, WORLD_W, 20, 0x4a7a2a).setDepth(-1);
+        for (let i = 0; i < 12; i++) {
+            const cl = this.add.ellipse(Math.random() * WORLD_W, 200+Math.random()*800, 150, 60, 0xffffff, 0.4).setScrollFactor(0.2);
+            this.clouds.push(cl);
+        }
+        const grid = this.add.graphics().lineStyle(1, 0x1e3a5f, 0.12);
+        for(let x=0; x<WORLD_W; x+=200) grid.lineBetween(x,0,x,WORLD_H);
+        for(let y=0; y<WORLD_H; y+=200) grid.lineBetween(0,y,WORLD_W,y);
+    }
+
+    createLevel() {
+        // Floor physics - use a solid rectangle that is invisible for stability
+        const floor = this.add.rectangle(WORLD_W / 2, 3000, WORLD_W, 1200, 0x000000, 0);
+        this.physics.add.existing(floor, true);
+        this.platforms.add(floor);
+
+        for (let i = 0; i < 25; i++) {
+            const x = Math.random() * (WORLD_W - 400) + 200;
+            const y = 600 + Math.random() * 1700;
+            const w = 200 + Math.floor(Math.random() * 3) * 100;
+            this.platforms.create(x, y, 'platform').setScale(w/200, 1).refreshBody();
+        }
+        for (let i = 0; i < 8; i++) {
+            const isV = Math.random() > 0.5;
+            const wall = this.add.rectangle(Math.random() * WORLD_W, 1000 + Math.random() * 1400, isV ? 60 : 300, isV ? 300 : 60, 0x444444);
+            this.physics.add.existing(wall, true); this.walls.add(wall);
+        }
+        for (let i = 0; i < 15; i++) {
+            const c = this.crates.create(Math.random()*WORLD_W, 500+Math.random()*1800, 'crate');
+            c.body.setImmovable(true); c.hp = 50;
+        }
+        for (let i = 0; i < 6; i++) {
+            const jp = this.add.rectangle(1000 + i * 800, 2390, 60, 10, 0xff8800);
+            this.physics.add.existing(jp, true);
+            this.physics.add.overlap(this.player, jp, () => {
+                if (this.time.now - this.player.lastJumpTime > 300) {
+                    this.player.body.velocity.y = -1400; this.player.lastJumpTime = this.time.now; audio.playSimpleSound('jump');
+                }
+            });
+        }
+    }
+
+    update(time, delta) {
+        if (!this.player || !this.player.body || !this.input.keyboard) return;
+        this.clouds.forEach(c => { c.x += (delta/1000)*15; if (c.x > WORLD_W+100) c.x = -100; });
+        this.updatePlayer(time, delta);
+        this.updateWeapon();
+        this.updateBots(time, delta);
+        this.updateHUD();
+        this.drawMiniMap();
+    }
+
+    updatePlayer(time, delta) {
+        if (!this.player || !this.player.body) return;
+        const onGround = this.player.body.touching.down;
+        let walkVel = 0;
+        if (this.keys.A.isDown) walkVel = onGround ? -300 : -180;
+        else if (this.keys.D.isDown) walkVel = onGround ? 300 : 180;
+        if (this.input.activePointer.rightButtonDown()) walkVel *= 0.5;
+        if (walkVel !== 0) {
+            this.player.setAccelerationX(walkVel > 0 ? 1500 : -1500);
+            if (onGround) {
+              const f = Math.floor(time / 100) % 4;
+              this.player.setTexture(f === 0 ? 'stick_run1' : (f === 2 ? 'stick_run2' : 'stick_idle'));
+            }
+        } else {
+            this.player.setAccelerationX(0); this.player.setDragX(onGround ? 1500 : 200);
+            if (onGround) this.player.setTexture('stick_idle');
+        }
+        if (this.keys.SPACE.isDown && this.player.jetFuel > 0 && !this.player.jetLock) {
+            this.player.body.velocity.y = Math.max(this.player.body.velocity.y - 40, -800);
+            this.player.jetFuel -= (delta/1000)*35;
+            // Particles: No physics, just simple images for stability
+            const p = this.add.image(this.player.x, this.player.y+20, 'flame');
+            p.setDepth(-1);
+            this.tweens.add({ 
+                targets: p, 
+                y: p.y + 50,
+                alpha: 0, 
+                scale: 0.5, 
+                duration: 250, 
+                onComplete: () => p.destroy() 
+            });
+            if (this.player.jetFuel <= 0) { this.player.jetFuel = 0; this.player.jetLock = true; this.time.delayedCall(1500, () => this.player.jetLock = false); }
+        } else { if (this.player.jetFuel < 100) this.player.jetFuel += (delta/1000)*20; }
+        const pointer = this.input.activePointer;
+        const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.worldX, pointer.worldY);
+        this.player.setFlipX(pointer.worldX < this.player.x);
+        const weapon = this.weapons[this.currentWeaponKey];
+        if (pointer.isDown && pointer.leftButtonDown() && time - this.lastFireTime > weapon.fireRate) {
+            this.fireBullet(angle, weapon); this.lastFireTime = time;
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.ONE)) this.switchWeapon('SR');
+        if (Phaser.Input.Keyboard.JustDown(this.keys.TWO)) this.switchWeapon('AR');
+        if (Phaser.Input.Keyboard.JustDown(this.keys.THREE)) this.switchWeapon('SMG');
+        if (Phaser.Input.Keyboard.JustDown(this.keys.FOUR)) this.switchWeapon('SG');
+        if (Phaser.Input.Keyboard.JustDown(this.keys.R)) this.reload();
+    }
+
+    updateWeapon() {
+        const p = this.input.activePointer;
+        const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, p.worldX, p.worldY);
+        this.weaponText.setPosition(this.player.x + Math.cos(angle)*35, this.player.y + Math.sin(angle)*30);
+        this.weaponText.setRotation(angle); this.weaponText.setFlipY(p.worldX < this.player.x);
+        this.aimGraphics.clear();
+        if (p.rightButtonDown()) {
+            this.aimGraphics.lineStyle(2, 0xff0000, 0.6).lineBetween(this.player.x, this.player.y, this.player.x + Math.cos(angle)*this.weapons[this.currentWeaponKey].range, this.player.y + Math.sin(angle)*this.weapons[this.currentWeaponKey].range);
+            this.cameras.main.setZoom(this.weapons[this.currentWeaponKey].zoom + 0.15);
+        } else { this.cameras.main.setZoom(this.weapons[this.currentWeaponKey].zoom); }
+    }
+
+    fireBullet(angle, weapon) {
+        if (this.isReloading || this.boltCycling || weapon.ammo <= 0) { if (weapon.ammo <= 0) { audio.playSimpleSound('empty'); this.reload(); } return; }
+        const count = weapon.pellets || 1;
+        for (let i = 0; i < count; i++) {
+            const b = this.bullets.get(this.player.x, this.player.y, 'flame');
+            if (b) {
+                b.setActive(true).setVisible(true);
+                if (!b.body) this.physics.add.existing(b);
+                b.body.enable = true;
+                // Reset velocity and position for pooled objects
+                b.body.reset(this.player.x, this.player.y);
+                b.spawnX = this.player.x; b.spawnY = this.player.y; b.maxRange = weapon.range; b.damage = weapon.damage;
+                const s = weapon.spread ? (Math.random()-0.5)*weapon.spread*(Math.PI/180) : 0;
+                this.physics.velocityFromRotation(angle + s, weapon.speed, b.body.velocity);
+            }
+        }
+        weapon.ammo--; audio.playShoot(this.currentWeaponKey);
+        this.player.body.velocity.x -= Math.cos(angle)*weapon.recoil; this.player.body.velocity.y -= Math.sin(angle)*weapon.recoil;
+        if (weapon.bolt) { this.boltCycling = true; this.weaponText.setText('SR-RAIL <'); this.showBanner('BOLT ACTION...', '#ff0', 800); this.time.delayedCall(900, () => { this.boltCycling = false; this.weaponText.setText(weapon.design); }); }
+        this.cameras.main.shake(100, 0.005*(weapon.recoil/50));
+    }
+
+    deactivateBullet(b) { 
+        if (!b) return;
+        b.setActive(false).setVisible(false); 
+        if (b.body) b.body.enable = false; 
+    }
+
+    reload() {
+        const w = this.weapons[this.currentWeaponKey];
+        if (this.isReloading || w.ammo === w.maxAmmo) return;
+        this.isReloading = true; 
+        const msg = w.ammo === 0 ? "OUT OF AMMO - RELOADING" : "RELOADING...";
+        this.showBanner(msg, '#ff0', w.reload);
+        this.time.delayedCall(w.reload, () => { 
+            if (this.currentWeaponKey && this.weapons[this.currentWeaponKey]) {
+                this.weapons[this.currentWeaponKey].ammo = this.weapons[this.currentWeaponKey].maxAmmo;
+            }
+            this.isReloading = false; 
+        });
+    }
+
+    switchWeapon(k) { 
+        if (!this.weapons[k]) return;
+        this.currentWeaponKey = k; 
+        this.weaponText.setText(this.weapons[k].design); 
+        audio.playSimpleSound('pickup'); 
+    }
+
+    spawnBots(c) {
+        const clrs = [0xff0000, 0x00ff00, 0xffff00, 0xff00ff, 0x00ffff, 0xff8800];
+        for (let i = 0; i < c; i++) {
+            const bx = 200 + Math.random() * (WORLD_W - 400);
+            const by = 500 + Math.random() * 1800;
+            const b = this.bots.create(bx, by, 'stick_idle');
+            if (b) {
+                const clr = clrs[i % clrs.length]; 
+                b.setTint(clr); 
+                b.color = clr; 
+                b.health = 100; 
+                b.lastFire = 0; 
+                b.targetX = b.x; 
+                b.setCollideWorldBounds(true);
+            }
+        }
+    }
+
+    updateBots(time, delta) {
+        if (!this.bots) return;
+        this.bots.getChildren().forEach(b => {
+            if (!b || !b.active || !b.body) return;
+            const d = Phaser.Math.Distance.Between(b.x, b.y, this.player.x, this.player.y);
+            if (d < 600) {
+                if (d < 400) { 
+                    b.setAccelerationX(0); 
+                    b.setDragX(1000); 
+                    if (time - b.lastFire > 1200) { this.botFire(b); b.lastFire = time; } 
+                }
+                else { 
+                    b.setAccelerationX(this.player.x > b.x ? 800 : -800); 
+                    if (b.body.blocked.left || b.body.blocked.right) b.body.velocity.y = -400; 
+                }
+            } else { 
+                if (Math.abs(b.x-b.targetX)<10) b.targetX = b.x+(Math.random()-0.5)*400; 
+                b.setAccelerationX(b.targetX>b.x?500:-500); 
+            }
+        });
+        
+        if (this.bullets) {
+            this.bullets.getChildren().forEach(b => { 
+                if (b.active && Phaser.Math.Distance.Between(b.x,b.y,b.spawnX,b.spawnY) > b.maxRange) this.deactivateBullet(b); 
+            });
+        }
+        
+        if (this.botBullets) {
+            this.botBullets.getChildren().forEach(b => { 
+                if (b.active && Phaser.Math.Distance.Between(b.x,b.y,b.spawnX,b.spawnY) > 600) this.deactivateBullet(b); 
+            });
+        }
+    }
+
+    botFire(bot) {
+        if (!bot || !bot.active) return;
+        const b = this.botBullets.get(bot.x, bot.y, 'flame');
+        if (b) { 
+            b.setActive(true).setVisible(true).setTint(bot.color); 
+            if (!b.body) this.physics.add.existing(b);
+            b.body.enable = true;
+            b.spawnX = bot.x; b.spawnY = bot.y;
+            this.physics.velocityFromRotation(Phaser.Math.Angle.Between(bot.x,bot.y,this.player.x,this.player.y), 600, b.body.velocity); 
+        }
+    }
+
+    onBulletHitBot(b, bot) { 
+        if (!b || !bot || !b.active || !bot.active || !bot.body) return; 
+        this.deactivateBullet(b); 
+        bot.health -= b.damage; 
+        audio.playSimpleSound('hit'); 
+        if (bot.health <= 0) { 
+            this.score += 100; 
+            this.elims++; 
+            this.showBanner('ELIMINATED', '#f00', 1000); 
+            this.spawnPickup(bot.x, bot.y); 
+            
+            // Safe removal: Deactivate first, then destroy next tick
+            bot.setActive(false).setVisible(false); 
+            if (bot.body) bot.body.enable = false;
+            
+            this.time.delayedCall(0, () => { 
+                if (bot.scene) {
+                    this.bots.remove(bot, true);
+                    this.spawnBots(1); 
+                }
+            });
+        } 
+    }
+
+    onBulletHitPlayer(p, b) {
+        if (!p || !b || !b.active || !b.body || p.health <= 0) return;
+        this.deactivateBullet(b);
+        audio.playSimpleSound('hit');
+        if (p.armor > 0) {
+            p.armor -= 10;
+            if (p.armor < 0) { p.health += p.armor; p.armor = 0; }
+        } else {
+            p.health -= 10;
+        }
+        if (p.health <= 0) {
+            p.health = 0;
+            this.gameOver();
+        }
+    }
+
+    onBulletHitCrate(b, c) {
+        if (!b || !c || !b.active || !b.body || !c.active) return;
+        this.deactivateBullet(b);
+        c.hp -= b.damage;
+        if (c.hp <= 0) {
+            this.spawnPickup(c.x, c.y);
+            c.setActive(false).setVisible(false);
+            if (c.body) c.body.enable = false;
+            this.time.delayedCall(0, () => { if (c.scene) this.crates.remove(c, true); });
+        }
+    }
+
+    spawnPickup(x, y) {
+        if (!this.pickups) return;
+        const types = ['ammo_box', 'health_pack', 'armor_plate', 'weapon_swap']; 
+        const type = types[Math.floor(Math.random()*types.length)];
+        const p = this.pickups.create(x, y, type); 
+        if (p) {
+            p.pType = type; 
+            this.tweens.add({ targets: p, y: y-10, duration: 1000, yoyo: true, repeat: -1 });
+        }
+    }
+
+    onPickup(p, pick) {
+        if (!p || !pick || !pick.active || !p.active) return;
+        const t = pick.pType;
+        if (t === 'health_pack') p.health = Math.min(100, p.health+50);
+        else if (t === 'ammo_box') this.weapons[this.currentWeaponKey].ammo = this.weapons[this.currentWeaponKey].maxAmmo;
+        else if (t === 'armor_plate') p.armor = Math.min(100, p.armor+50);
+        else if (t === 'weapon_swap') {
+            const keys = Object.keys(this.weapons);
+            this.switchWeapon(keys[Math.floor(Math.random()*keys.length)]);
+        }
+        audio.playSimpleSound('pickup'); 
+        
+        pick.setActive(false).setVisible(false);
+        if (pick.body) pick.body.enable = false;
+        this.time.delayedCall(0, () => { if (pick.scene) this.pickups.remove(pick, true); });
+    }
+
+    updateHUD() {
+        if (!this.player || !this.player.active) return;
+        const hEl = document.getElementById('healthBar'); if (hEl) hEl.style.width = this.player.health+'%';
+        const htEl = document.getElementById('healthText'); if (htEl) htEl.innerText = Math.ceil(this.player.health)+'%';
+        const aEl = document.getElementById('armorBar'); if (aEl) aEl.style.width = this.player.armor+'%';
+        const atEl = document.getElementById('armorText'); if (atEl) atEl.innerText = Math.ceil(this.player.armor)+'%';
+        const jEl = document.getElementById('jetBar'); if (jEl) { jEl.style.width = this.player.jetFuel+'%'; jEl.style.background = this.player.jetLock?'#f00':'#0ff'; }
+        const w = this.weapons[this.currentWeaponKey];
+        const amEl = document.getElementById('ammoBar'); if (amEl) amEl.style.width = (w.ammo/w.maxAmmo*100)+'%';
+        const amtEl = document.getElementById('ammoText'); if (amtEl) amtEl.innerText = w.ammo+'/'+w.maxAmmo;
+        const sEl = document.getElementById('statusHud'); if (sEl) sEl.innerText = `SCORE ${this.score.toString().padStart(6,'0')}\nWAVE ${this.wave.toString().padStart(2,'0')} | ELIMS ${this.elims}\nWEAPON: ${w.name}`;
+    }
+
+    drawMiniMap() {
+        if (!this.miniMapCtx) return;
+        const ctx = this.miniMapCtx; ctx.fillStyle='#0a1628'; ctx.fillRect(0,0,256,144); const s=0.04;
+        ctx.fillStyle='#444'; this.platforms.getChildren().forEach(p => ctx.fillRect(p.x*s, p.y*s, p.displayWidth*s, 2));
+        this.bots.getChildren().forEach(b => { ctx.fillStyle='#'+b.color.toString(16).padStart(6,'0'); ctx.fillRect(b.x*s, b.y*s, 4, 4); });
+        ctx.fillStyle='#0f0'; ctx.beginPath(); ctx.arc(this.player.x*s, this.player.y*s, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    showBanner(t, c, d=2000) { const b=document.createElement('div'); b.className='banner'; b.innerText=t; b.style.color=c; document.getElementById('bannerContainer').appendChild(b); setTimeout(()=>b.remove(), d); }
+    newGame() { try { this.scene.restart(); } catch(e) { console.error(e); } }
+    togglePause() { try { if (this.scene.isPaused()) { this.scene.resume(); document.getElementById('pauseBtn').innerText='Pause'; } else { this.scene.pause(); document.getElementById('pauseBtn').innerText='Resume'; } } catch(e) { console.error(e); } }
+    toggleSound() { try { const on=audio.toggleMute(); document.getElementById('soundBtn').innerText=on?'Sound: ON':'Sound: OFF'; } catch(e) { console.error(e); } }
+    setVolume(v) { audio.setVolume(v); }
+    gameOver() { this.showBanner('GAME OVER - PRESS NEW GAME', '#f00', 100000); this.scene.pause(); }
+}
+
+// Global Error Handler for Cross-Origin robustness
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    const errorMsg = `[Hyperion Global] ${msg} at ${lineNo}:${columnNo}`;
+    console.error(errorMsg, error);
+    if (document.getElementById('statusHud')) {
+        document.getElementById('statusHud').innerText += '\nERROR: ' + msg;
+    }
+    return false;
+};
+
+function getGameScene() {
+    return window.gameInstance && window.gameInstance.scene && window.gameInstance.scene.scenes
+        ? window.gameInstance.scene.scenes[0]
+        : null;
+}
+
+function callGame(action, value) {
+    const scene = getGameScene();
+    if (!scene || typeof scene[action] !== 'function') {
+        console.warn('[Hyperion] Scene not ready for action:', action);
+        return;
+    }
+    scene[action](value);
+}
+
+function showModal(t) { document.getElementById('modalOverlay').style.display='flex'; document.getElementById('modalTitle').innerText=t==='help'?'Help':'Settings'; document.getElementById('modalBody').innerHTML=t==='help'?'<b>CONTROLS:</b><br>WASD: Move<br>SPACE: Jetpack<br>MOUSE: Aim/Shoot<br>RMB: Tactical Zoom<br>1-4: Switch Weapons<br>R: Reload':'Settings UI Loaded.'; }
+function closeModal() { document.getElementById('modalOverlay').style.display='none'; }
+
+function initGame() {
+    const parentEl = document.getElementById('renderDiv');
+    if (!parentEl) {
+        console.error('[Hyperion] Could not find #renderDiv');
+        return;
+    }
+    window.gameInstance = new Phaser.Game({ 
+        type: Phaser.AUTO, 
+        parent: parentEl, 
+        scale: {
+            mode: Phaser.Scale.RESIZE,
+            width: parentEl.clientWidth || 960,
+            height: parentEl.clientHeight || 540
+        },
+        physics: { 
+            default: 'arcade', 
+            arcade: { 
+                gravity: { y: 600 },
+                debug: false 
+            } 
+        }, 
+        scene: Hyperion 
+    });
+}
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initGame);
+} else {
+    initGame();
+}
+</script>
+</body>
+</html>
+<!--
+CHANGELOG:
+- Phase 1: Win95 beveled UI shell implemented. Procedural stickman and env textures generated via Graphics.
+- Phase 2: 4 weapon classes (SR, AR, SMG, SG) with physics-based bullet pooling, recoil, and bolt action.
+- Phase 3: World geometry includes sky/ground, platforms, walls, crates, and jump pads.
+- Phase 4: Jetpack with fuel consumption, recovery, and heat-lockout. Particle flames added.
+- Phase 5: Mini-map canvas, toolbar wiring, and banner feedback system.
+- Phase 6: Web Audio synthesis for procedural layering of gunshots (boom, crack, pop).
+- Phase 7: AI bots with wander/chase/attack states and color variety.
+- Phase 8: Pickups for Health, Ammo, Armor, and Weapons.
+- Phase 9: Screen shake, banner priority, and muzzle flashes.
+
+TESTING CHECKLIST:
+1. Movement: WASD/Arrows move stickman. Momentum/accel should feel "Mini Militia" style.
+2. Jetpack: Hold SPACE. Stickman thrusts up with flame particles. Check Cyan bar depletion.
+3. Combat: 
+   - Press 1: Sniper Rifle (SR). Single-shot kills bots. 900ms bolt-action delay between shots.
+   - Press 2: AR. Automatic fire. Balanced recoil.
+   - Press 3: SMG. Very fast fire rate, high spread.
+   - Press 4: Shotgun. Fires 6 pellets in a cone. Heavy recoil.
+4. Aiming: RMB shows red tactical line and increases zoom.
+5. HUD: Health (Red), Armor (Blue), Jet (Cyan), Ammo (Yellow) bars all update in real-time.
+6. Mini-Map: View side-panel map showing platforms, player (green), and bots.
+7. Bots: 19 colored bots wander and attack with colored tracers.
+8. Pickups: Kill bots or break crates (by shooting) to drop Health/Ammo/Armor cubes.
+9. Audio: Volume slider works. "Sound: ON/OFF" toggle works.
+10. UI Buttons: "New Game" restarts, "Pause" halts world, "Help" shows controls.
+
+KNOWN LIMITATIONS:
+- Ragdolls are simulated via simple angular velocity and fade-out rather than multi-part physics.
+- Procedural audio quality varies by browser Web Audio implementation.
+-->

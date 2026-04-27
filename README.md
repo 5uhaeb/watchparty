@@ -14,9 +14,14 @@ This starter supports:
 - YouTube links
 - local file playback metadata sync
 - local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
+- HYPERION.EXE as an embedded local room game source
 - anonymous guest identity with a signed httpOnly cookie
 
 OTT/browser-extension sync is disabled. The current focus is the in-room video call, local streaming, and Janus room audio.
+
+## Embedded games
+
+Hosts/admins can choose **Hyperion** from the source picker to launch the bundled `HYPERION.EXE` side-scrolling shooter in the room player. The game is served from `frontend/public/games/hyperion/` and runs locally for each participant inside an iframe, so it does not require a third-party CDN at runtime. The original editable game package lives in `hyperion.io/`.
 
 ## Local file streaming
 

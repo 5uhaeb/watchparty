@@ -52,6 +52,8 @@ export default function RoomPlayer({
 
   const adapterType = sourceType === 'local' || sourceType === 'file'
     ? 'file'
+    : sourceType === 'game'
+      ? 'game'
     : sourceType === 'url' && sourceData?.mode === 'embed'
       ? 'embed'
       : sourceType;
@@ -128,7 +130,7 @@ export default function RoomPlayer({
   }, [currentPosition, currentUserId, roomCode]);
 
   useEffect(() => {
-    if (adapterType === 'localStream' || adapterType === 'embed') return;
+    if (adapterType === 'localStream' || adapterType === 'embed' || adapterType === 'game') return;
 
     const onPlay = (payload: TimedPlayback) => {
       if (payload.byUserId !== currentUserId) applyHostSync({ ...payload, isPlaying: true });
@@ -194,7 +196,7 @@ export default function RoomPlayer({
   }, [adapterType, applyHostSync, currentUserId, isHost, roomCode, syncNow]);
 
   useEffect(() => {
-    if (!isHost || adapterType === 'localStream' || adapterType === 'embed') return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed' || adapterType === 'game') return;
 
     const intervalId = window.setInterval(() => {
       socket.emit('player:heartbeat', {
@@ -207,7 +209,7 @@ export default function RoomPlayer({
   }, [adapterType, currentPosition, isHost, roomCode]);
 
   useEffect(() => {
-    if (!isHost || adapterType === 'localStream' || adapterType === 'embed') return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed' || adapterType === 'game') return;
 
     const intervalId = window.setInterval(() => {
       if (!playerRef.current || isApplyingRemoteRef.current) return;
@@ -234,7 +236,7 @@ export default function RoomPlayer({
     const previousState = lastStateRef.current;
     lastStateRef.current = state;
 
-    if (!isHost || adapterType === 'localStream' || adapterType === 'embed' || isApplyingRemoteRef.current) return;
+    if (!isHost || adapterType === 'localStream' || adapterType === 'embed' || adapterType === 'game' || isApplyingRemoteRef.current) return;
 
     const positionSec = currentPosition();
     if (state === 'playing' && previousState !== 'playing') {
@@ -314,6 +316,28 @@ export default function RoomPlayer({
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
           Pick a YouTube link or local file to keep using this room.
         </p>
+      </div>
+    );
+  }
+
+  if (adapterType === 'game') {
+    return (
+      <div className="player-stack">
+        <div className="player-toolbar">
+          <a className="button button-secondary" href={effectiveUrl || '/games/hyperion/index.html'} target="_blank" rel="noopener noreferrer">
+            Open Hyperion
+          </a>
+        </div>
+        <div className="player-shell" data-player-shell>
+          <iframe
+            src={effectiveUrl || '/games/hyperion/index.html'}
+            className="player-frame"
+            allow="autoplay; fullscreen; gamepad"
+            allowFullScreen
+            style={{ border: 0, display: 'block' }}
+            title="HYPERION.EXE"
+          />
+        </div>
       </div>
     );
   }

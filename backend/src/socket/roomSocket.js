@@ -167,6 +167,17 @@ function normalizeSource(payload, socket) {
     };
   }
 
+  if (payload.type === 'game') {
+    const gameId = typeof payload.gameId === 'string' ? payload.gameId.trim().toLowerCase() : '';
+    if (gameId !== 'hyperion') throw new Error('Unsupported game');
+    return {
+      type: 'game',
+      gameId,
+      title: 'HYPERION.EXE',
+      url: '/games/hyperion/index.html',
+    };
+  }
+
   if (payload.type === 'ott-sync') {
     throw new Error('OTT sync is disabled.');
   }
