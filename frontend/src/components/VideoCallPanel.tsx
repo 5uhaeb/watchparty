@@ -84,6 +84,7 @@ export default function VideoCallPanel({
   const [networkWarning, setNetworkWarning] = useState('');
 
   const localStreamRef = useRef<MediaStream | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const callPeersRef = useRef<Map<string, CallPeer>>(new Map());
   const peersStateRef = useRef<PeerState[]>([]);
@@ -165,17 +166,26 @@ export default function VideoCallPanel({
     });
   }, [currentUser.id]);
 
-  const addLocalTracksToPeerConnection = (pc: RTCPeerConnection) => {
+  const addLocalTracksToPeerConnection = useCallback((pc: RTCPeerConnection) => {
     const localStream = localStreamRef.current;
+    const micStream = microphoneStreamRef.current;
     const videoTrack = localStream?.getVideoTracks()[0];
+    const audioTrack = micStream?.getAudioTracks()[0];
+    const hasSenderForTrack = (track: MediaStreamTrack) =>
+      pc.getSenders().some((sender) => sender.track?.id === track.id);
 
     if (localStream && videoTrack) {
-      pc.addTrack(videoTrack, localStream);
-      return;
+      if (!hasSenderForTrack(videoTrack)) pc.addTrack(videoTrack, localStream);
+    } else if (!pc.getTransceivers().some((transceiver) => transceiver.receiver.track.kind === 'video')) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
     }
 
-    pc.addTransceiver('video', { direction: 'recvonly' });
-  };
+    if (micStream && audioTrack) {
+      if (!hasSenderForTrack(audioTrack)) pc.addTrack(audioTrack, micStream);
+    } else if (!pc.getTransceivers().some((transceiver) => transceiver.receiver.track.kind === 'audio')) {
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+    }
+  }, []);
 
   const flushPendingIce = async (peer: CallPeer) => {
     const pending = [...peer.pendingCandidates];
@@ -294,7 +304,7 @@ export default function VideoCallPanel({
     };
 
     return peer;
-  }, [removePeerConnection, sendSignal]);
+  }, [addLocalTracksToPeerConnection, removePeerConnection, sendSignal]);
 
   const startPeerOffer = useCallback(async (member: CallMember) => {
     const peer = createPeerConnection(member, true);
@@ -339,8 +349,10 @@ export default function VideoCallPanel({
       const stream = new MediaStream([
         ...localCameraStream.getVideoTracks(),
       ]);
+      const micStream = new MediaStream(localCameraStream.getAudioTracks());
       localStreamRef.current = stream;
-      setMicrophoneStream(new MediaStream(localCameraStream.getAudioTracks()));
+      microphoneStreamRef.current = micStream;
+      setMicrophoneStream(micStream);
       setIsInCall(true);
       setPermissionIssue(null);
     } catch (error) {
@@ -359,13 +371,15 @@ export default function VideoCallPanel({
   const leaveCall = () => {
     isLeavingCallRef.current = true;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    microphoneStream?.getTracks().forEach((track) => track.stop());
+    const micStream = microphoneStreamRef.current || microphoneStream;
+    micStream?.getTracks().forEach((track) => track.stop());
     callPeersRef.current.forEach((peer) => {
       if (peer.restartTimer) window.clearTimeout(peer.restartTimer);
       peer.pc.close();
     });
     callPeersRef.current.clear();
     localStreamRef.current = null;
+    microphoneStreamRef.current = null;
     hasJoinedCallRef.current = false;
     isJoiningCallRef.current = false;
     localSocketIdRef.current = '';
@@ -381,7 +395,8 @@ export default function VideoCallPanel({
 
   const toggleMic = () => {
     const next = !isMicOn;
-    microphoneStream?.getAudioTracks().forEach((track) => {
+    const micStream = microphoneStreamRef.current || microphoneStream;
+    micStream?.getAudioTracks().forEach((track) => {
       track.enabled = next;
     });
     setIsMicOn(next);
@@ -1117,7 +1132,7 @@ function PeerVideo({ peer }: { peer: PeerState }) {
       <StatusBadges badges={peer.badges} />
       {peer.stream ? (
         <>
-          <video ref={videoRef} data-call-media autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <video ref={videoRef} data-call-media autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           {showConnectionStatus && (
             <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.72)', color: 'white', padding: '3px 7px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700 }}>
               {peer.status}
