@@ -1,6 +1,7 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import Hls from 'hls.js';
 import type { PlayerAdapter, PlayerEventHandlers, PlayerState } from './types';
 
 type Props = PlayerEventHandlers & {
@@ -13,6 +14,15 @@ function getVideoState(video: HTMLVideoElement | null): PlayerState {
   if (video.ended) return 'ended';
   if (video.paused) return 'paused';
   return 'playing';
+}
+
+function isHlsUrl(src: string) {
+  try {
+    const url = new URL(src, window.location.href);
+    return /\.m3u8(?:$|[?#])/i.test(url.pathname) || url.search.toLowerCase().includes('m3u8');
+  } catch {
+    return /\.m3u8(?:$|[?#])/i.test(src);
+  }
 }
 
 const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlayer(
@@ -38,6 +48,42 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    let hls: Hls | null = null;
+
+    setError(null);
+
+    if (isHlsUrl(src)) {
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = src;
+      } else if (Hls.isSupported()) {
+        hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90,
+        });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls?.startLoad();
+            setError('Stream network error. Retrying...');
+            return;
+          }
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls?.recoverMediaError();
+            setError('Stream decoding error. Retrying...');
+            return;
+          }
+          setError('This HLS stream could not be played by the browser.');
+          onError?.(data);
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+      } else {
+        setError('This browser does not support HLS playback.');
+      }
+    } else {
+      video.src = src;
+    }
 
     const ready = () => {
       setError(null);
@@ -90,6 +136,7 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
       video.removeEventListener('seeked', stateChanged);
       video.removeEventListener('ended', stateChanged);
       video.removeEventListener('error', errored);
+      hls?.destroy();
     };
   }, [onReady, onStateChange, onError, src]);
 
@@ -98,9 +145,10 @@ const LocalFilePlayer = forwardRef<PlayerAdapter, Props>(function LocalFilePlaye
       <video
         ref={videoRef}
         data-watch-media
-        src={src}
         controls={controls}
         playsInline
+        preload="metadata"
+        crossOrigin="anonymous"
         className="local-video-frame"
       />
       {error && (

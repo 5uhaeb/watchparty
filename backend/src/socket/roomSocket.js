@@ -125,7 +125,10 @@ function normalizeHttpUrl(rawUrl) {
 function isDirectMediaUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
-    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(?:$|[?#])/i.test(url.pathname);
+    return (
+      /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8|mpd)(?:$|[?#])/i.test(url.pathname) ||
+      url.search.toLowerCase().includes('m3u8')
+    );
   } catch {
     return false;
   }

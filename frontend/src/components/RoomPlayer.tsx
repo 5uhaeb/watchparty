@@ -398,7 +398,8 @@ export default function RoomPlayer({
 function isDownloadableMediaUrl(url: string) {
   try {
     const parsed = new URL(url);
-    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8)(?:$|[?#])/i.test(parsed.pathname);
+    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8|mpd)(?:$|[?#])/i.test(parsed.pathname) ||
+      parsed.search.toLowerCase().includes('m3u8');
   } catch {
     return false;
   }
