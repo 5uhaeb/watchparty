@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '@/lib/socket';
 import { getPeerConnectionConfig } from '@/lib/iceServers';
-import RoomAudioControls from '@/components/RoomAudioControls';
 
 interface PeerState {
   socketId: string;
   userId: string;
   name: string;
   stream: MediaStream | null;
+  fallbackFrameUrl?: string;
   status: string;
   badges: string[];
 }
@@ -65,11 +65,12 @@ const VIDEO_BITRATE_TIERS = {
   medium: 850_000,
   low: 350_000,
 };
+const RELAY_FRAME_INTERVAL_MS = 350;
+const RELAY_FRAME_WIDTH = 480;
 
 export default function VideoCallPanel({
   roomCode,
   currentUser,
-  publishMediaAudio = false,
 }: {
   roomCode: string;
   currentUser: { id: string; name: string };
@@ -84,14 +85,13 @@ export default function VideoCallPanel({
   const [localBadges, setLocalBadges] = useState<string[]>([]);
   const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
   const [micVolume, setMicVolume] = useState(1);
-  const [mediaVolume, setMediaVolume] = useState(1);
-  const [mixedRoomVolume, setMixedRoomVolume] = useState(1);
   const [permissionIssue, setPermissionIssue] = useState<MediaPermissionIssue | null>(null);
   const [callReconnectKey, setCallReconnectKey] = useState(0);
   const [networkWarning, setNetworkWarning] = useState('');
   const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
   const [cameraIndex, setCameraIndex] = useState(0);
   const [syncToast, setSyncToast] = useState('');
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const rawMicrophoneStreamRef = useRef<MediaStream | null>(null);
@@ -106,10 +106,19 @@ export default function VideoCallPanel({
   const isLeavingCallRef = useRef(false);
   const localSocketIdRef = useRef('');
   const lastSyncClickRef = useRef(0);
+  const relayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     peersStateRef.current = peers;
   }, [peers]);
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px)');
+    const update = () => setIsCompactViewport(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     micGainRef.current?.gain.setTargetAtTime(isMicOn ? micVolume : 0, micAudioContextRef.current?.currentTime || 0, 0.02);
@@ -354,8 +363,8 @@ export default function VideoCallPanel({
       if (pc.connectionState === 'connecting') updatePeer(member.socketId, { status: 'Connecting' });
       if (pc.connectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
       if (pc.connectionState === 'failed') {
-        updatePeer(member.socketId, { status: 'TURN relay needed' });
-        setNetworkWarning('Video works on the same WiFi but fails across networks when no working TURN relay is configured. Add TURN credentials in Vercel, then redeploy.');
+        updatePeer(member.socketId, { status: 'Using relay fallback' });
+        setNetworkWarning('Direct WebRTC could not connect, so the room is showing the socket video fallback while the browser retries the peer route.');
         peer.restartTimer = window.setTimeout(() => {
           if (pc.connectionState !== 'closed') pc.restartIce?.();
         }, 500);
@@ -371,8 +380,8 @@ export default function VideoCallPanel({
       if (pc.iceConnectionState === 'checking') updatePeer(member.socketId, { status: 'Connecting' });
       if (pc.iceConnectionState === 'disconnected') updatePeer(member.socketId, { status: 'Reconnecting' });
       if (pc.iceConnectionState === 'failed') {
-        updatePeer(member.socketId, { status: 'TURN relay needed' });
-        setNetworkWarning('Video works on the same WiFi but fails across networks when no working TURN relay is configured. Add TURN credentials in Vercel, then redeploy.');
+        updatePeer(member.socketId, { status: 'Using relay fallback' });
+        setNetworkWarning('Direct WebRTC could not connect, so the room is showing the socket video fallback while the browser retries the peer route.');
         pc.restartIce?.();
       }
     };
@@ -437,12 +446,12 @@ export default function VideoCallPanel({
       }
 
       const localCameraStream = await navigator.mediaDevices.getUserMedia({
-        ...CALL_MEDIA_CONSTRAINTS,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         },
+        video: isCompactViewport ? false : CALL_MEDIA_CONSTRAINTS.video,
       });
 
       const stream = new MediaStream([
@@ -455,6 +464,7 @@ export default function VideoCallPanel({
       microphoneStreamRef.current = micStream;
       setMicrophoneStream(micStream);
       await refreshVideoInputs();
+      setIsCamOn(!isCompactViewport && localCameraStream.getVideoTracks().length > 0);
       setIsInCall(true);
       setPermissionIssue(null);
     } catch (error) {
@@ -469,6 +479,41 @@ export default function VideoCallPanel({
     localVideoRef.current.srcObject = localStreamRef.current;
     localVideoRef.current.play().catch(() => null);
   }, [isInCall]);
+
+  useEffect(() => {
+    if (!isInCall) return;
+
+    const sendRelayFrame = () => {
+      const video = localVideoRef.current;
+      if (!video || video.readyState < 2 || !socket.connected || !isCamOn) return;
+
+      const sourceWidth = video.videoWidth || RELAY_FRAME_WIDTH;
+      const sourceHeight = video.videoHeight || Math.round(RELAY_FRAME_WIDTH * 0.75);
+      if (!sourceWidth || !sourceHeight) return;
+
+      const width = RELAY_FRAME_WIDTH;
+      const height = Math.max(1, Math.round(width * (sourceHeight / sourceWidth)));
+      const canvas = relayCanvasRef.current || document.createElement('canvas');
+      relayCanvasRef.current = canvas;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      context.drawImage(video, 0, 0, width, height);
+      const frame = canvas.toDataURL('image/jpeg', 0.5);
+      socket.emit('call:video-frame', {
+        roomCode,
+        frame,
+        width,
+        height,
+        sentAt: Date.now(),
+      });
+    };
+
+    const intervalId = window.setInterval(sendRelayFrame, RELAY_FRAME_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [isCamOn, isInCall, roomCode]);
 
   const leaveCall = () => {
     isLeavingCallRef.current = true;
@@ -658,6 +703,32 @@ export default function VideoCallPanel({
       if (socketId && speaking) flashPeerBadge(socketId, 'Speaking');
     };
 
+    const handleVideoFrame = ({
+      socketId,
+      userId,
+      name,
+      frame,
+    }: {
+      socketId?: string;
+      userId?: string;
+      name?: string;
+      frame?: string;
+    }) => {
+      if (!socketId || socketId === localSocketIdRef.current || !frame) return;
+      ensurePeer(socketId, userId || socketId, name || userId || socketId);
+      setPeers((current) =>
+        current.map((peer) =>
+          peer.socketId === socketId
+            ? {
+                ...peer,
+                fallbackFrameUrl: frame,
+                status: peer.status === 'Connected' ? peer.status : 'Relay video',
+              }
+            : peer
+        )
+      );
+    };
+
     const handleSignal = async ({
       fromSocketId,
       fromUserId,
@@ -741,6 +812,7 @@ export default function VideoCallPanel({
     socket.on('participant:updated', handleNameChanged);
     socket.on('call:media-state', handleMediaState);
     socket.on('call:speaking', handleSpeaking);
+    socket.on('call:video-frame', handleVideoFrame);
     socket.on('connect', rebuildCallAfterReconnect);
 
     const joinTimer = window.setTimeout(() => {
@@ -758,6 +830,7 @@ export default function VideoCallPanel({
       socket.off('participant:updated', handleNameChanged);
       socket.off('call:media-state', handleMediaState);
       socket.off('call:speaking', handleSpeaking);
+      socket.off('call:video-frame', handleVideoFrame);
       socket.off('connect', rebuildCallAfterReconnect);
     };
   }, [isInCall, currentUser.id, currentUser.name, roomCode, createPeerConnection, removePeerConnection, sendSignal, startPeerOffer, callReconnectKey]);
@@ -768,7 +841,7 @@ export default function VideoCallPanel({
         <div className="label-tag" style={{ marginBottom: '8px' }}>Call</div>
         <h3 style={{ margin: '0 0 6px' }}>Video Call</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px' }}>
-          Call and watch audio are mixed through the room audio server. Headphones are recommended.
+          Direct WebRTC is used first. If it cannot connect, the room falls back to a low-latency relay so remote video still appears.
         </p>
         <button className="button" onClick={joinCall} style={{ width: '100%' }}>
           Join Call
@@ -784,14 +857,14 @@ export default function VideoCallPanel({
     );
   }
 
-  const totalVideos = peers.length + 1;
+  const totalVideos = isCompactViewport ? 0 : peers.length + 1;
   const cols = totalVideos <= 1 ? 1 : totalVideos <= 4 ? 2 : 3;
 
   return (
     <div className="card glass video-call-card" style={{ padding: '16px' }}>
       <div className="video-call-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>
-          Video Call
+          {isCompactViewport ? 'Voice Call' : 'Video Call'}
           <span style={{ marginLeft: '8px', background: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem' }}>
             {totalVideos}/{MAX_CALL_USERS}
           </span>
@@ -814,7 +887,7 @@ export default function VideoCallPanel({
           marginBottom: '12px'
         }}
       >
-        <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+        {!isCompactViewport && <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
           <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           <StatusBadges badges={localBadges} />
           {!isCamOn && (
@@ -825,9 +898,9 @@ export default function VideoCallPanel({
           <div className="video-call-name-badge" style={{ position: 'absolute', bottom: '6px', left: '6px', background: 'rgba(0,0,0,0.65)', color: 'white', padding: '2px 7px', borderRadius: '6px', fontSize: '0.72rem' }}>
             You {!isMicOn ? 'Muted' : ''}
           </div>
-        </div>
+        </div>}
 
-        {peers.map((peer) => (
+        {!isCompactViewport && peers.map((peer) => (
           <RemoteVideoTile key={peer.socketId} peerId={peer.socketId} peer={peer} />
         ))}
       </div>
@@ -851,20 +924,6 @@ export default function VideoCallPanel({
           </div>
         )}
         <VolumeSlider label="Mic volume" value={micVolume} onChange={setMicVolume} />
-        <VolumeSlider label="Media volume" value={mediaVolume} onChange={setMediaVolume} />
-        <VolumeSlider label="Room output" value={mixedRoomVolume} onChange={setMixedRoomVolume} />
-        <RoomAudioControls
-          roomCode={roomCode}
-          currentUser={currentUser}
-          microphoneStream={microphoneStream}
-          isActive={isInCall}
-          isMicEnabled={isMicOn}
-          micVolume={micVolume}
-          mediaVolume={mediaVolume}
-          mixedVolume={mixedRoomVolume}
-          publishMediaAudio={publishMediaAudio}
-          onWarning={setAudioSupportWarning}
-        />
       </div>
 
       <div className="video-call-actions">
@@ -879,10 +938,11 @@ export default function VideoCallPanel({
         <button
           className="button button-secondary"
           onClick={toggleCam}
+          disabled={isCompactViewport}
           style={{ flex: 1, padding: '9px', fontSize: '0.85rem', background: isCamOn ? undefined : 'rgba(239,68,68,0.1)' }}
         >
           <CameraIcon off={!isCamOn} />
-          {isCamOn ? 'Hide camera' : 'Show camera'}
+          {isCompactViewport ? 'Voice only' : isCamOn ? 'Hide camera' : 'Show camera'}
         </button>
         {videoInputs.length > 1 && (
           <button
@@ -1279,6 +1339,8 @@ function RemoteVideoTile({ peerId, peer }: { peerId: string; peer: PeerState }) 
   const videoRef = useRef<HTMLVideoElement>(null);
   const attachedStreamRef = useRef<MediaStream | null>(null);
   const showConnectionStatus = peer.status !== 'Connected';
+  const shouldShowWebRtcVideo = !!peer.stream && peer.status === 'Connected';
+  const shouldShowRelayFrame = !shouldShowWebRtcVideo && !!peer.fallbackFrameUrl;
 
   useEffect(() => {
     if (!peer.stream) return;
@@ -1292,7 +1354,7 @@ function RemoteVideoTile({ peerId, peer }: { peerId: string; peer: PeerState }) 
   return (
     <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
       <StatusBadges badges={peer.badges} />
-      {peer.stream ? (
+      {shouldShowWebRtcVideo ? (
         <>
           <video ref={videoRef} data-call-media autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           {showConnectionStatus && (
@@ -1300,6 +1362,13 @@ function RemoteVideoTile({ peerId, peer }: { peerId: string; peer: PeerState }) 
               {peer.status}
             </div>
           )}
+        </>
+      ) : shouldShowRelayFrame ? (
+        <>
+          <img src={peer.fallbackFrameUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.72)', color: 'white', padding: '3px 7px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700 }}>
+            {peer.status}
+          </div>
         </>
       ) : (
         <div style={{ position: 'absolute', inset: 0, background: '#0d1117', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>

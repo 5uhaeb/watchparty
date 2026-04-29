@@ -353,7 +353,7 @@ export default function RoomPlayer({
         <div className="player-shell" data-player-shell>
           <iframe
             src={effectiveUrl || ''}
-            className="player-frame"
+            className="player-frame player-frame-embed"
             allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
             allowFullScreen
             referrerPolicy="no-referrer-when-downgrade"

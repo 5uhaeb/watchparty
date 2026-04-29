@@ -265,9 +265,7 @@ export default function RoomPage() {
       return;
     }
 
-    socket.emit('room:setSource', { type: sourceTab, url });
-    setLocalStreamFile(null);
-    setShowSourceModal(false);
+    playUrlSource(url, sourceTab);
   };
 
   const clearSource = () => {
@@ -311,6 +309,28 @@ export default function RoomPage() {
     setShowSourceModal(true);
   };
 
+  const detectUrlSourceTab = (url: string): SourceTab => {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.replace(/^www\./, '');
+      return host === 'youtu.be' || host === 'youtube.com' || host === 'm.youtube.com'
+        ? 'youtube'
+        : 'url';
+    } catch {
+      return sourceTab;
+    }
+  };
+
+  const playUrlSource = (url: string, tab = detectUrlSourceTab(url)) => {
+    if (!canChangeSource) return;
+    socket.emit('room:setSource', { type: tab, url });
+    setSourceTab(tab);
+    setSourceUrlDraft(url);
+    setLocalStreamFile(null);
+    setShowSourceModal(false);
+    setSourceMessage('');
+  };
+
   const setFullscreenMode = (mode: FullscreenLayout) => {
     setFullscreenLayout(mode);
     window.localStorage.setItem(FULLSCREEN_LAYOUT_KEY, mode);
@@ -330,12 +350,12 @@ export default function RoomPage() {
   };
 
   const handleSourceUrlPaste = (event: ClipboardEvent<HTMLInputElement>) => {
-    if (sourceTab !== 'url') return;
     const pastedUrl = event.clipboardData.getData('text').trim();
     try {
       const parsed = new URL(pastedUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) return;
-      openFrameExtensionPage();
+      event.preventDefault();
+      playUrlSource(parsed.toString(), detectUrlSourceTab(parsed.toString()));
     } catch {
       // Ignore non-URL clipboard text.
     }

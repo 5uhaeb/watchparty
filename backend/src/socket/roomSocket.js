@@ -711,6 +711,22 @@ function registerRoomSocket(io, socket) {
     });
   });
 
+  socket.on('call:video-frame', ({ roomCode, frame, width, height, sentAt } = {}) => {
+    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+    if (!targetRoomCode || !socket.callUserId || socket.callRoomCode !== targetRoomCode) return;
+    if (typeof frame !== 'string' || !frame.startsWith('data:image/') || frame.length > 180000) return;
+
+    socket.to(targetRoomCode).emit('call:video-frame', {
+      socketId: socket.id,
+      userId: socket.callUserId,
+      name: socket.callName,
+      frame,
+      width: Number(width) || 0,
+      height: Number(height) || 0,
+      sentAt: Number(sentAt) || Date.now(),
+    });
+  });
+
   socket.on('room:leave', async () => {
     if (!socket.roomCode || !socket.userData) return;
 

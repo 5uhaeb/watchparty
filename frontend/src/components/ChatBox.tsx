@@ -211,16 +211,16 @@ export default function ChatBox({
         {messages.map((message, index) => (
           <div
             key={messageKey(message) || index}
-            className={`chat-message ${message.isSystem ? 'chat-message-system' : ''}`}
+            className={`chat-message ${message.isSystem ? 'chat-message-system' : ''} ${(message.username || message.userName) === currentUserName ? 'chat-message-own' : ''}`}
           >
             {!message.isSystem && (
-              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+              <div className="chat-message-author">
                 {message.userId && namesByGuestId[message.userId]
                   ? namesByGuestId[message.userId]
                   : message.username || message.userName}
               </div>
             )}
-            <div>{message.text}</div>
+            <div className="chat-message-text">{message.text}</div>
           </div>
         ))}
 

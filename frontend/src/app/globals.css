@@ -354,11 +354,12 @@ textarea {
 }
 
 .room-watch-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 390px);
 }
 
 .room-watch-layout.has-call {
-  grid-template-columns: minmax(560px, 1fr) minmax(292px, 330px);
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 390px);
 }
 
 .watch-column,
@@ -410,10 +411,12 @@ textarea {
 .room-watch-layout.is-fullscreen {
   width: 100vw;
   height: 100vh;
-  padding: 12px;
+  padding: 0;
   background: #050505;
   display: grid;
-  gap: 10px;
+  gap: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 390px);
+  overflow: hidden;
 }
 
 .room-watch-layout.is-fullscreen .watch-column {
@@ -429,18 +432,55 @@ textarea {
   height: 100%;
 }
 
+.room-watch-layout.is-fullscreen.has-call .watch-stage {
+  padding-top: 112px;
+}
+
+.room-watch-layout.is-fullscreen.has-call .video-call-card {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  right: clamp(330px, 24vw, 402px);
+  z-index: 12;
+  min-height: 92px;
+  padding: 10px 12px !important;
+  overflow: hidden;
+}
+
+.room-watch-layout.is-fullscreen.has-call .video-call-header,
+.room-watch-layout.is-fullscreen.has-call .call-audio-controls,
+.room-watch-layout.is-fullscreen.has-call .video-call-actions {
+  display: none !important;
+}
+
+.room-watch-layout.is-fullscreen.has-call .video-call-grid {
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: 10px !important;
+  margin: 0 !important;
+  overflow-x: auto;
+}
+
+.room-watch-layout.is-fullscreen.has-call .video-call-tile {
+  width: 132px;
+  height: 78px;
+  aspect-ratio: auto !important;
+  flex: 0 0 auto;
+  border-radius: 12px !important;
+}
+
 .room-watch-layout.is-fullscreen .player-frame,
 .room-watch-layout.is-fullscreen .local-video-frame {
   border-radius: 0;
 }
 
 .room-watch-layout.fullscreen-side {
-  grid-template-columns: minmax(0, 1fr) minmax(292px, 330px);
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 390px);
 }
 
 .room-watch-layout.fullscreen-cinema {
-  grid-template-rows: minmax(0, 1fr) auto;
-  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 390px);
 }
 
 .room-watch-layout.fullscreen-cinema .room-side-column {
@@ -448,29 +488,23 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.room-watch-layout.fullscreen-cinema .chat-panel,
 .room-watch-layout.fullscreen-cinema .room-side-column > .card.glass:not(.video-call-card) {
   display: none;
 }
 
 .room-watch-layout.fullscreen-cinema .video-call-card {
-  max-height: 28vh;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .room-watch-layout.fullscreen-overlay {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 390px);
 }
 
 .room-watch-layout.fullscreen-overlay .room-side-column {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  width: min(280px, calc(100vw - 32px));
-  z-index: 9;
+  position: static;
+  width: auto;
 }
 
-.room-watch-layout.fullscreen-overlay .chat-panel,
 .room-watch-layout.fullscreen-overlay .room-side-column > .card.glass:not(.video-call-card),
 .room-watch-layout.fullscreen-overlay .call-audio-controls,
 .room-watch-layout.fullscreen-overlay .video-call-actions,
@@ -529,6 +563,15 @@ textarea {
   background: #000;
 }
 
+.player-frame-embed {
+  aspect-ratio: auto;
+  height: clamp(420px, calc(100vh - 260px), 760px);
+}
+
+.room-watch-layout.has-call .player-frame-embed {
+  height: clamp(420px, calc(100vh - 230px), 820px);
+}
+
 .local-video-frame {
   width: 100%;
   border-radius: var(--r-lg);
@@ -537,27 +580,54 @@ textarea {
 }
 
 .chat-scroll {
-  max-height: min(42vh, 360px);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
-  border: var(--outline-thin) solid var(--outline);
-  border-radius: var(--r-lg);
-  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 10px 10px;
   display: grid;
-  gap: 10px;
-  background: var(--surface-2);
+  align-content: end;
+  gap: 8px;
+  background: transparent;
 }
 
 .chat-message {
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  background: var(--surface);
-  border: var(--outline-thin) solid var(--outline);
-  box-shadow: var(--shadow-xs);
+  width: fit-content;
+  max-width: min(82%, 320px);
+  padding: 8px 11px;
+  border-radius: 18px;
+  background: #262b3d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
   overflow-wrap: anywhere;
+  color: #f8fafc;
+}
+
+.chat-message-own {
+  justify-self: end;
+  background: linear-gradient(135deg, #405de6, #5851db 42%, #e1306c);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.chat-message-author {
+  margin-bottom: 2px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.chat-message-text {
+  font-size: 0.92rem;
+  line-height: 1.3;
 }
 
 .chat-message-system {
-  background: var(--surface-3);
+  justify-self: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
 }
 
 .chat-form input,
@@ -685,7 +755,81 @@ textarea {
 }
 
 .room-side-column {
-  gap: 14px;
+  gap: 12px;
+  align-self: stretch;
+  min-height: 0;
+  position: sticky;
+  top: 12px;
+  height: calc(100vh - 24px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.room-side-column .chat-panel {
+  min-height: 0;
+}
+
+.chat-panel {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(64, 93, 230, 0.18), transparent 34%),
+    #0b1020;
+}
+
+.chat-panel h3 {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff7d6;
+}
+
+.chat-form {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(3, 7, 18, 0.72);
+}
+
+.chat-form input {
+  min-width: 0;
+  border-radius: 999px !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+
+.chat-form button {
+  border-radius: 999px !important;
+  min-height: 40px !important;
+  box-shadow: none !important;
+}
+
+.room-watch-layout.is-fullscreen .room-side-column {
+  position: relative;
+  top: 0;
+  height: 100vh;
+  padding: 0;
+  gap: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  background: #050816;
+}
+
+.room-watch-layout.is-fullscreen .room-side-column > .card.glass:not(.video-call-card) {
+  display: none;
+}
+
+.room-watch-layout.is-fullscreen .chat-panel {
+  border: 0;
+  height: 100vh;
 }
 
 .room-side-column .video-call-actions {
@@ -774,6 +918,16 @@ textarea {
   .room-watch-layout,
   .room-watch-layout.has-call {
     grid-template-columns: 1fr;
+  }
+
+  .room-side-column {
+    position: static;
+    height: auto;
+    grid-template-rows: auto;
+  }
+
+  .chat-panel {
+    height: min(58vh, 520px);
   }
 
   .container {
@@ -883,7 +1037,46 @@ textarea {
   }
 
   .chat-scroll {
-    max-height: 46vh;
+    max-height: none;
+  }
+
+  .chat-panel {
+    height: min(56vh, 460px);
+  }
+
+  .chat-form {
+    flex-direction: row !important;
+    align-items: center !important;
+  }
+
+  .chat-form input {
+    flex: 1 1 auto !important;
+  }
+
+  .chat-form button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    padding-inline: 14px !important;
+  }
+
+  .video-call-card {
+    padding: 12px !important;
+  }
+
+  .video-call-card .video-call-grid {
+    display: none !important;
+  }
+
+  .video-call-card .video-call-header {
+    margin-bottom: 8px !important;
+  }
+
+  .video-call-card .call-audio-controls {
+    margin-bottom: 8px !important;
+  }
+
+  .video-call-card .video-call-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .player-toolbar .button {
@@ -911,7 +1104,7 @@ textarea {
   }
 
   .video-call-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .volume-slider-row {

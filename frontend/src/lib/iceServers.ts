@@ -55,12 +55,12 @@ export function getPeerConnectionConfig(): RTCConfiguration {
   const policy = (
     process.env.NEXT_PUBLIC_ICE_TRANSPORT_POLICY ||
     process.env.NEXT_PUBLIC_FORCE_TURN ||
-    'relay'
+    'all'
   ).toLowerCase();
 
   return {
     iceServers: ICE_SERVERS,
-    iceTransportPolicy: policy === 'all' || policy === 'false' ? 'all' : 'relay',
+    iceTransportPolicy: policy === 'relay' || policy === 'true' ? 'relay' : 'all',
     bundlePolicy: 'max-bundle',
   };
 }
