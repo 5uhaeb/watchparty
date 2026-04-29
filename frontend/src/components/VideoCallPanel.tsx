@@ -65,8 +65,8 @@ const VIDEO_BITRATE_TIERS = {
   medium: 850_000,
   low: 350_000,
 };
-const RELAY_FRAME_INTERVAL_MS = 350;
-const RELAY_FRAME_WIDTH = 480;
+const RELAY_FRAME_INTERVAL_MS = 300;
+const RELAY_FRAME_WIDTH = 280;
 
 export default function VideoCallPanel({
   roomCode,
@@ -501,7 +501,7 @@ export default function VideoCallPanel({
       if (!context) return;
 
       context.drawImage(video, 0, 0, width, height);
-      const frame = canvas.toDataURL('image/jpeg', 0.5);
+      const frame = canvas.toDataURL('image/jpeg', 0.38);
       socket.emit('call:video-frame', {
         roomCode,
         frame,

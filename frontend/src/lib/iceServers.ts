@@ -33,17 +33,6 @@ export function getIceServers(): RTCIceServer[] {
       username: turnUsername,
       credential: turnCredential,
     });
-  } else {
-    servers.push({
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-        'turns:openrelay.metered.ca:443?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    });
   }
 
   return servers;
@@ -57,10 +46,12 @@ export function getPeerConnectionConfig(): RTCConfiguration {
     process.env.NEXT_PUBLIC_FORCE_TURN ||
     'all'
   ).toLowerCase();
+  const hasConfiguredTurn = !!(process.env.NEXT_PUBLIC_TURN_URLS || process.env.NEXT_PUBLIC_TURN_URL);
+  const shouldForceRelay = hasConfiguredTurn && (policy === 'relay' || policy === 'true');
 
   return {
     iceServers: ICE_SERVERS,
-    iceTransportPolicy: policy === 'relay' || policy === 'true' ? 'relay' : 'all',
+    iceTransportPolicy: shouldForceRelay ? 'relay' : 'all',
     bundlePolicy: 'max-bundle',
   };
 }

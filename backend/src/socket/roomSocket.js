@@ -713,8 +713,9 @@ function registerRoomSocket(io, socket) {
 
   socket.on('call:video-frame', ({ roomCode, frame, width, height, sentAt } = {}) => {
     const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
-    if (!targetRoomCode || !socket.callUserId || socket.callRoomCode !== targetRoomCode) return;
-    if (typeof frame !== 'string' || !frame.startsWith('data:image/') || frame.length > 180000) return;
+    if (!targetRoomCode || !socket.callUserId) return;
+    if (socket.callRoomCode && socket.callRoomCode !== targetRoomCode) return;
+    if (typeof frame !== 'string' || !frame.startsWith('data:image/') || frame.length > 240000) return;
 
     socket.to(targetRoomCode).emit('call:video-frame', {
       socketId: socket.id,
