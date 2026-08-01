@@ -4,11 +4,10 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    healthCheckPath: /api/health
     envVars:
       - key: PORT
         value: 10000
-      - key: BACKEND_PORT
-        value: 5000
       - key: MONGODB_URI
         sync: false
       - key: CLIENT_URL
