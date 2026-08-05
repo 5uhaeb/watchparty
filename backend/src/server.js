@@ -9,7 +9,12 @@ const registerRoomSocket = require('./socket/roomSocket');
 const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
 const { createAdapterClients, usingMockRedis } = require('./lib/redis');
 
-connectDB();
+const allowedClientOrigins = new Set(
+  String(process.env.CLIENT_URL || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -17,7 +22,7 @@ const io = new Server(server, {
     origin(origin, callback) {
       if (
         !origin ||
-        origin === process.env.CLIENT_URL ||
+        allowedClientOrigins.has(origin) ||
         /^chrome-extension:\/\//.test(origin) ||
         /^moz-extension:\/\//.test(origin)
       ) {
@@ -82,6 +87,15 @@ io.on('connection', (socket) => {
   registerRoomSocket(io, socket);
 });
 
-server.listen(process.env.PORT || 5000, () => {
-  console.log(`Server running on port ${process.env.PORT || 5000}`);
+async function start() {
+  await connectDB();
+  const port = process.env.PORT || 5000;
+  server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+start().catch((error) => {
+  console.error('Server startup failed:', error.message);
+  process.exit(1);
 });

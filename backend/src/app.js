@@ -8,9 +8,16 @@ const app = express();
 
 app.set('trust proxy', 1);
 
+const allowedClientOrigins = new Set(
+  String(process.env.CLIENT_URL || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
-  if (origin === process.env.CLIENT_URL) return true;
+  if (allowedClientOrigins.has(origin)) return true;
   if (/^chrome-extension:\/\//.test(origin)) return true;
   if (/^moz-extension:\/\//.test(origin)) return true;
   return false;
@@ -23,8 +30,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());   // <-- add this
-app.use(express.urlencoded({ extended: true })); // optional but useful
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,

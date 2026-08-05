@@ -4,7 +4,7 @@ const guestSchema = new mongoose.Schema(
   {
     _id: { type: String, required: true },
     displayName: { type: String, required: true },
-    lastSeenAt: { type: Date, default: Date.now, index: true },
+    lastSeenAt: { type: Date, default: Date.now },
     avatarHue: { type: Number, min: 0, max: 359, required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

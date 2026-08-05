@@ -137,6 +137,8 @@ REDIS_URL=redis://localhost:6379
 GUEST_JWT_SECRET=replace_me
 ```
 
+`CLIENT_URL` accepts one frontend origin or a comma-separated allowlist of origins.
+
 `REDIS_URL` stores live room presence only. Presence is intentionally transient:
 users are marked `reconnecting` on socket disconnect and are removed only after
 60 seconds without returning, or immediately when they click Leave. Room presence
