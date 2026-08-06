@@ -1168,6 +1168,47 @@ textarea {
   text-align: center;
 }
 
+.frame-helper-inline {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: var(--outline-thin) solid var(--outline);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--yellow) 12%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.frame-helper-inline.is-ready {
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+}
+
+.frame-helper-card {
+  display: grid;
+  gap: 14px;
+}
+
+.frame-helper-card h2,
+.frame-helper-card p,
+.frame-helper-card ol { margin: 0; }
+
+.frame-helper-card ol {
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.frame-helper-disclaimer {
+  padding-top: 12px;
+  border-top: var(--outline-thin) solid var(--outline);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .field-group {
   flex: 1 1 240px;
   min-width: min(240px, 100%);

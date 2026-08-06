@@ -19,7 +19,17 @@ type SourceTab = 'youtube' | 'url' | 'localStream' | 'game';
 type FullscreenLayout = 'side' | 'cinema' | 'overlay';
 
 const FRAME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/allow-x-frame-options/jfjdfokifdlmbkbncmcfbcobggohdnif';
+const FRAME_HELPER_READY_KEY = 'watchparty.frameHelperReady';
 const FULLSCREEN_LAYOUT_KEY = 'watchparty.fullscreenLayout';
+
+function isDirectMediaUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    return /\.(mp4|webm|ogg|ogv|mov|m4v|m3u8|mpd)(?:$|[?#])/i.test(url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
 
 export default function RoomPage() {
   const params = useParams();
@@ -33,6 +43,9 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [showCall, setShowCall] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
+  const [showFrameHelperSetup, setShowFrameHelperSetup] = useState(false);
+  const [frameHelperReady, setFrameHelperReady] = useState(false);
+  const [pendingEmbedUrl, setPendingEmbedUrl] = useState('');
   const [sourceTab, setSourceTab] = useState<SourceTab>('youtube');
   const [sourceUrlDraft, setSourceUrlDraft] = useState('');
   const [sourceMessage, setSourceMessage] = useState('');
@@ -66,6 +79,10 @@ export default function RoomPage() {
     ? { fileName: localStreamFile.name, sizeBytes: localStreamFile.size }
     : source;
   const activeSourceUrl = source?.type === 'youtube' || source?.type === 'url' || source?.type === 'game' ? source.url : undefined;
+
+  useEffect(() => {
+    setFrameHelperReady(window.localStorage.getItem(FRAME_HELPER_READY_KEY) === 'true');
+  }, []);
 
   useEffect(() => {
     if (!code) return;
@@ -271,6 +288,13 @@ export default function RoomPage() {
       return;
     }
 
+    if (sourceTab === 'url' && !isDirectMediaUrl(url) && !frameHelperReady) {
+      setPendingEmbedUrl(url);
+      setShowFrameHelperSetup(true);
+      setSourceMessage('Enable the frame helper once, then WatchParty will continue this URL.');
+      return;
+    }
+
     playUrlSource(url, sourceTab);
   };
 
@@ -351,8 +375,27 @@ export default function RoomPage() {
   };
 
   const openFrameExtensionPage = () => {
-    setSourceMessage('If this page blocks embedding, install/enable the Chrome extension, reload this room, then press Play URL again.');
+    setShowFrameHelperSetup(true);
+    setSourceMessage('Install or enable the helper, then return here and confirm it is ready.');
     window.open(FRAME_EXTENSION_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const confirmFrameHelperReady = () => {
+    window.localStorage.setItem(FRAME_HELPER_READY_KEY, 'true');
+    setFrameHelperReady(true);
+    setShowFrameHelperSetup(false);
+    setSourceMessage('Frame helper enabled for page embeds.');
+    if (pendingEmbedUrl) {
+      playUrlSource(pendingEmbedUrl, 'url');
+      setPendingEmbedUrl('');
+    }
+  };
+
+  const resetFrameHelper = () => {
+    window.localStorage.removeItem(FRAME_HELPER_READY_KEY);
+    setFrameHelperReady(false);
+    setPendingEmbedUrl(sourceUrlDraft.trim());
+    setShowFrameHelperSetup(true);
   };
 
   const handleSourceUrlPaste = (event: ClipboardEvent<HTMLInputElement>) => {
@@ -482,12 +525,14 @@ export default function RoomPage() {
             placeholder={sourceTab === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://example.com/embed/...'}
           />
           {sourceTab === 'url' && (
-            <div style={{ display: 'grid', gap: 8, color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: 1.4 }}>
+            <div className={`frame-helper-inline ${frameHelperReady ? 'is-ready' : ''}`}>
               <span>
-                Page/embed URLs may be blocked by browser frame protection. If the embed stays blank, install the helper extension, enable it, reload this room, then try the URL again.
+                {frameHelperReady
+                  ? 'Frame helper marked ready. Page embeds will open with your browser extension enabled.'
+                  : 'Page embeds need the Allow X-Frame-Options browser helper. WatchParty will guide you through the one-time setup.'}
               </span>
-              <button type="button" className="button button-secondary" onClick={openFrameExtensionPage}>
-                Open Chrome extension
+              <button type="button" className="button button-secondary" onClick={frameHelperReady ? resetFrameHelper : openFrameExtensionPage}>
+                {frameHelperReady ? 'Check helper setup' : 'Set up frame helper'}
               </button>
             </div>
           )}
@@ -801,6 +846,31 @@ export default function RoomPage() {
               </button>
             </div>
             {sourcePicker}
+          </div>
+        </div>
+      )}
+
+      {showFrameHelperSetup && (
+        <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowFrameHelperSetup(false)}>
+          <div className="card glass modal-card frame-helper-card" role="dialog" aria-modal="true" aria-labelledby="frame-helper-title">
+            <div className="label-tag">One-time browser setup</div>
+            <h2 id="frame-helper-title">Enable page embeds</h2>
+            <p>
+              Some providers block their pages from loading inside other websites. Chrome requires you to explicitly install and enable the Allow X-Frame-Options extension; WatchParty cannot install it silently.
+            </p>
+            <ol>
+              <li>Open the Chrome Web Store using the button below.</li>
+              <li>Select <strong>Add to Chrome</strong>, then enable the extension for this site.</li>
+              <li>Return to this room and select <strong>I enabled it</strong>.</li>
+            </ol>
+            <div className="actions-row">
+              <button className="button" onClick={openFrameExtensionPage}>Open extension page</button>
+              <button className="button button-secondary" onClick={confirmFrameHelperReady}>I enabled it</button>
+              <button className="button button-secondary" onClick={() => { setShowFrameHelperSetup(false); setPendingEmbedUrl(''); }}>Cancel</button>
+            </div>
+            <p className="frame-helper-disclaimer">
+              This helper only affects frame headers. It does not bypass sign-in, subscriptions, DRM, or provider playback restrictions. Only enable it for sites you trust.
+            </p>
           </div>
         </div>
       )}
