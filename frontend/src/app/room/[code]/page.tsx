@@ -404,7 +404,17 @@ export default function RoomPage() {
       const parsed = new URL(pastedUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) return;
       event.preventDefault();
-      playUrlSource(parsed.toString(), detectUrlSourceTab(parsed.toString()));
+      const normalizedUrl = parsed.toString();
+      const tab = detectUrlSourceTab(normalizedUrl);
+      setSourceUrlDraft(normalizedUrl);
+      setSourceTab(tab);
+      if (tab === 'url' && !isDirectMediaUrl(normalizedUrl) && !frameHelperReady) {
+        setPendingEmbedUrl(normalizedUrl);
+        setShowFrameHelperSetup(true);
+        setSourceMessage('Enable the frame helper once, then WatchParty will continue this URL.');
+        return;
+      }
+      playUrlSource(normalizedUrl, tab);
     } catch {
       // Ignore non-URL clipboard text.
     }
