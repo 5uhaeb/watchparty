@@ -586,7 +586,15 @@ export default function RoomPage() {
             <span aria-hidden="true" />
             {connectionStatus === 'connected' ? 'Live and synced' : connectionStatus === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
             <span className="role-divider" aria-hidden="true">•</span>
-            {isOwnerOrAdmin ? 'You manage this room' : canControlPlayback ? 'You can control playback' : 'Host controls playback'}
+            {isOwnerOrAdmin
+              ? 'You manage this room'
+              : canControlPlayback && canChangeSource
+                ? 'You can choose sources and control playback'
+                : canChangeSource
+                  ? 'You can choose what to watch'
+                  : canControlPlayback
+                    ? 'You can control playback'
+                    : 'Host controls playback'}
           </div>
         </div>
 
