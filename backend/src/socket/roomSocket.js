@@ -276,6 +276,11 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
     return;
   }
 
+  if (!(await isRoomMember(room, actorUserId)) || socket.roomCode !== targetRoomCode) {
+    socket.emit('error:validation', { message: 'Join the room before controlling playback.' });
+    return;
+  }
+
   const ottValidation = validateOttPayload(room, rawPayload);
   if (!ottValidation.ok) {
     socket.emit('error:validation', { message: ottValidation.message });
@@ -345,15 +350,17 @@ function registerRoomSocket(io, socket) {
     const guestId = socket.data?.guestId || user.id || user.name;
     const displayName = socket.data?.displayName || user.name || 'Guest';
 
+    const room = await Room.findOne({ code: roomCode, isActive: true });
+    if (!room) {
+      socket.emit('error:validation', { message: 'Room not found.' });
+      return;
+    }
+
     socket.join(roomCode);
     socket.roomCode = roomCode;
     socket.userData = { id: guestId, name: displayName };
     socket.userId = guestId;
     socket.join(`user:${guestId}`);
-
-    const room = await Room.findOne({ code: roomCode, isActive: true });
-
-    if (!room) return;
 
     socket.isHost = room.ownerGuestId === guestId;
     const presence = await presenceJoin(io, roomCode, socket);
@@ -404,6 +411,10 @@ function registerRoomSocket(io, socket) {
 
     const userId = socket.data?.guestId || socket.userData?.id || userName;
     const username = socket.data?.displayName || socket.userData?.name || userName;
+    if (socket.roomCode !== targetRoomCode || !(await isRoomMember(room, userId))) {
+      socket.emit('error:validation', { message: 'Join the room before sending messages.' });
+      return;
+    }
 
     const saved = await Message.create({
       roomId: room._id,
@@ -567,17 +578,20 @@ function registerRoomSocket(io, socket) {
 
   // anyone in the room can drive sync now
   socket.on('playback:update', async ({ roomCode, playback, userId }) => {
-    const room = await Room.findOne({ code: roomCode });
+    const actorUserId = getUserId(socket, userId);
+    const room = await Room.findOne({ code: roomCode, isActive: true });
     if (!room) return;
 
-    const isHost = isOwnerOrAdmin(room, userId);
+    if (socket.roomCode !== roomCode || !(await isRoomMember(room, actorUserId))) return;
+
+    const isHost = isOwnerOrAdmin(room, actorUserId);
     if (!isHost && room.permissions?.controlPlayback !== 'all') return;
 
     const nextPlayback = {
       isPlaying: !!playback?.isPlaying,
       currentTime: Number(playback?.currentTime || 0),
       updatedAt: new Date(),
-      updatedBy: userId || 'unknown',
+      updatedBy: actorUserId || 'unknown',
     };
 
     await Room.findOneAndUpdate(
@@ -622,6 +636,12 @@ function registerRoomSocket(io, socket) {
 
     if (!targetRoomCode || !guestId) {
       callback?.({ ok: false, message: 'Missing room or guest identity.' });
+      return;
+    }
+
+    const room = await Room.findOne({ code: targetRoomCode, isActive: true });
+    if (!room || socket.roomCode !== targetRoomCode || !(await isRoomMember(room, guestId))) {
+      callback?.({ ok: false, message: 'Join the room before joining the call.' });
       return;
     }
 
