@@ -44,6 +44,7 @@ export default function RoomPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [connectionToast, setConnectionToast] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'reconnecting'>(socket.connected ? 'connected' : 'connecting');
   const [loadError, setLoadError] = useState('');
   const [fullscreenLayout, setFullscreenLayout] = useState<FullscreenLayout>('side');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -110,9 +111,12 @@ export default function RoomPage() {
       socket.emit('player:state', { roomCode: code });
     };
     const handleDisconnect = () => {
+      setConnectionStatus('reconnecting');
       setConnectionToast('Connection lost - reconnecting...');
     };
+    const handleConnect = () => setConnectionStatus('connected');
     const handleReconnect = () => {
+      setConnectionStatus('connected');
       setConnectionToast('Back online');
       window.setTimeout(() => setConnectionToast(''), 2500);
       joinCurrentRoom();
@@ -124,6 +128,7 @@ export default function RoomPage() {
     socket.on('room:sourceChanged', handleSourceChanged);
     socket.on('room:presence', handlePresence);
     socket.on('disconnect', handleDisconnect);
+    socket.on('connect', handleConnect);
     socket.io.on('reconnect', handleReconnect);
 
     joinCurrentRoom();
@@ -143,6 +148,7 @@ export default function RoomPage() {
       socket.off('room:sourceChanged', handleSourceChanged);
       socket.off('room:presence', handlePresence);
       socket.off('disconnect', handleDisconnect);
+      socket.off('connect', handleConnect);
       socket.io.off('reconnect', handleReconnect);
     };
   }, [code, guestId, router, userName]);
@@ -190,7 +196,7 @@ export default function RoomPage() {
   };
 
   const endRoom = async () => {
-    if (!canChangeSource) return;
+    if (!isOwnerOrAdmin) return;
     const confirmed = window.confirm('End this room for everyone?');
     if (!confirmed) return;
 
@@ -534,7 +540,7 @@ export default function RoomPage() {
   return (
     <div className="room-page">
       {connectionToast && (
-        <div className="card glass" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50, padding: '10px 14px' }}>
+        <div className="card glass" role="status" aria-live="polite" style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50, padding: '10px 14px' }}>
           {connectionToast}
         </div>
       )}
@@ -576,10 +582,16 @@ export default function RoomPage() {
               </span>
             )}
           </p>
+          <div className={`connection-status connection-status-${connectionStatus}`} role="status" aria-live="polite">
+            <span aria-hidden="true" />
+            {connectionStatus === 'connected' ? 'Live and synced' : connectionStatus === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+            <span className="role-divider" aria-hidden="true">•</span>
+            {isOwnerOrAdmin ? 'You manage this room' : canControlPlayback ? 'You can control playback' : 'Host controls playback'}
+          </div>
         </div>
 
         <div className="room-actions">
-          <button className="button button-secondary" onClick={copyInviteLink}>
+          <button className="button button-secondary" onClick={copyInviteLink} aria-live="polite">
             {copied ? 'Copied' : 'Invite link'}
           </button>
           {canChangeSource && (
@@ -600,7 +612,7 @@ export default function RoomPage() {
           <button className="button button-secondary" onClick={leaveRoom}>
             Leave
           </button>
-          {canChangeSource && (
+          {isOwnerOrAdmin && (
             <button className="button" onClick={endRoom} style={{ background: '#ef4444' }}>
               End Room
             </button>
@@ -772,10 +784,10 @@ export default function RoomPage() {
       </div>
 
       {showSourceModal && (
-        <div className="modal-backdrop">
-          <div className="card glass modal-card">
+        <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowSourceModal(false)}>
+          <div className="card glass modal-card" role="dialog" aria-modal="true" aria-labelledby="source-dialog-title">
             <div className="modal-header" style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0 }}>Change Source</h3>
+              <h3 id="source-dialog-title" style={{ margin: 0 }}>Choose what to watch</h3>
               <button className="button button-secondary" onClick={() => setShowSourceModal(false)} style={{ width: 'auto', padding: '6px 10px' }}>
                 Close
               </button>

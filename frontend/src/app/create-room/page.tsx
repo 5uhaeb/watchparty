@@ -11,6 +11,7 @@ export default function CreateRoomPage() {
   const [title, setTitle] = useState('');
   const [nameDraft, setNameDraft] = useState(guest?.displayName || '');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (guest?.displayName) setNameDraft(guest.displayName);
@@ -19,6 +20,7 @@ export default function CreateRoomPage() {
   const handleCreate = async () => {
     try {
       setLoading(true);
+      setError('');
       const nextName = nameDraft.trim();
       if (nextName && nextName !== guest?.displayName) {
         await updateName(nextName);
@@ -26,7 +28,7 @@ export default function CreateRoomPage() {
       const room = await createRoom(title.trim() ? { title } : {});
       router.push(`/room/${room.code}`);
     } catch (error) {
-      alert('Failed to create room');
+      setError(error instanceof Error ? error.message : 'Could not create the room. Please try again.');
       console.error(error);
     } finally {
       setLoading(false);
@@ -66,9 +68,10 @@ export default function CreateRoomPage() {
           />
         </label>
 
-        <button className="button" style={{ width: '100%' }} onClick={handleCreate} disabled={loading}>
+        <button className="button" style={{ width: '100%' }} onClick={handleCreate} disabled={loading} aria-describedby={error ? 'create-room-error' : undefined}>
           {loading ? 'Creating...' : 'Create room'}
         </button>
+        {error && <p id="create-room-error" role="alert" style={{ margin: 0, color: 'var(--red)' }}>{error}</p>}
       </div>
     </div>
   );

@@ -16,8 +16,8 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
 
   const handleJoin = async () => {
-    const code = joinCode.trim().toUpperCase();
-    if (!code || code.length < 4) {
+    const code = extractRoomCode(joinCode);
+    if (!/^[A-Z2-9]{6}$/.test(code)) {
       setJoinError('Please enter a valid room code.');
       return;
     }
@@ -113,32 +113,20 @@ export default function DashboardPage() {
           Got an invite link or room code? Enter it below.
         </p>
         <div className="form-row">
-          <input
-            className="input"
-            value={nameDraft}
-            onChange={(event) => setNameDraft(event.target.value)}
-            placeholder="Display name"
-            maxLength={24}
-            style={{ flex: 1, minWidth: '180px', margin: 0 }}
-          />
-          <input
-            className="input"
-            value={joinCode}
-            onChange={(event) => {
-              setJoinCode(event.target.value.toUpperCase());
-              setJoinError('');
-            }}
-            onKeyDown={(event) => event.key === 'Enter' && handleJoin()}
-            placeholder="Room code (e.g. ABC123)"
-            maxLength={8}
-            style={{ flex: 1, minWidth: '180px', margin: 0, fontFamily: 'monospace', letterSpacing: '0.1em', fontWeight: 600, fontSize: '1rem' }}
-          />
+          <label className="field-group">
+            <span>Your display name</span>
+            <input className="input" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} placeholder="Display name" maxLength={24} autoComplete="nickname" />
+          </label>
+          <label className="field-group">
+            <span>Room code or invite link</span>
+            <input className="input room-code-input" value={joinCode} onChange={(event) => { setJoinCode(event.target.value); setJoinError(''); }} onKeyDown={(event) => event.key === 'Enter' && handleJoin()} placeholder="ABC123 or paste an invite link" autoCapitalize="characters" autoComplete="off" aria-invalid={!!joinError} aria-describedby={joinError ? 'join-error' : undefined} />
+          </label>
           <button className="button" onClick={handleJoin} disabled={joining} style={{ flexShrink: 0 }}>
             {joining ? 'Joining...' : 'Join room'}
           </button>
         </div>
         {joinError && (
-          <p style={{ color: 'var(--red)', fontSize: '0.875rem', margin: '10px 0 0' }}>{joinError}</p>
+          <p id="join-error" role="alert" style={{ color: 'var(--red)', fontSize: '0.875rem', margin: '10px 0 0' }}>{joinError}</p>
         )}
       </div>
 
@@ -158,4 +146,10 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function extractRoomCode(value: string) {
+  const normalized = value.trim().toUpperCase();
+  const urlMatch = normalized.match(/\/ROOM\/([A-Z2-9]{6})(?:[/?#]|$)/);
+  return (urlMatch?.[1] || normalized).replace(/\s+/g, '');
 }

@@ -4,8 +4,8 @@ import Providers from '@/components/Providers';
 import Navbar from '@/components/Navbar';
 
 export const metadata = {
-  title: 'WatchParty Starter',
-  description: 'Simple watch party starter'
+  title: 'WatchParty — Watch together',
+  description: 'Create a room, invite your people, and enjoy synchronized video, chat, and calls.'
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -19,9 +19,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body>
+        <a className="skip-link" href="#main-content">Skip to main content</a>
         <Providers>
           <Navbar />
-          <main className="container">{children}</main>
+          <main id="main-content" className="container" tabIndex={-1}>{children}</main>
         </Providers>
       </body>
     </html>

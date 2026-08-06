@@ -24,14 +24,27 @@ const GuestContext = createContext<GuestContextValue | null>(null);
 type GuestResponse = Guest & { token?: string };
 
 async function guestFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: guestAuthHeaders({
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      signal: controller.signal,
+      credentials: 'include',
+      headers: guestAuthHeaders({
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      }),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('The server took too long to respond.');
+    }
+    throw new Error('Could not reach WatchParty. Check your connection and try again.');
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({}));
@@ -46,11 +59,18 @@ async function guestFetch(path: string, options: RequestInit = {}) {
 export function GuestProvider({ children }: { children: ReactNode }) {
   const [guest, setGuest] = useState<Guest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapError, setBootstrapError] = useState('');
 
   const bootstrap = async () => {
-    const nextGuest = await guestFetch('/guest/bootstrap', { method: 'POST' }) as GuestResponse;
-    setGuest(nextGuest);
-    return nextGuest;
+    try {
+      setBootstrapError('');
+      const nextGuest = await guestFetch('/guest/bootstrap', { method: 'POST' }) as GuestResponse;
+      setGuest(nextGuest);
+      return nextGuest;
+    } catch (error) {
+      setBootstrapError(error instanceof Error ? error.message : 'Could not set up your guest identity.');
+      throw error;
+    }
   };
 
   const updateName = async (displayName: string) => {
@@ -70,7 +90,7 @@ export function GuestProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    bootstrap().finally(() => setLoading(false));
+    bootstrap().catch(() => null).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -96,12 +116,19 @@ export function GuestProvider({ children }: { children: ReactNode }) {
     [guest, loading]
   );
 
-  if (loading) {
+  if (loading || (!guest && bootstrapError)) {
     return (
       <div className="center-screen">
-        <div className="card glass" style={{ textAlign: 'center' }}>
-          <div className="label-tag" style={{ marginBottom: 12 }}>Joining</div>
-          <h2>Setting up your guest identity...</h2>
+        <div className="card glass identity-status-card" role={bootstrapError ? 'alert' : 'status'} aria-live="polite">
+          <div className="label-tag" style={{ marginBottom: 12 }}>{bootstrapError ? 'Connection issue' : 'Joining'}</div>
+          <h2>{bootstrapError ? 'We could not get you ready' : 'Setting up your guest identity...'}</h2>
+          <p className="text-mute">{bootstrapError || 'No account is needed. This usually takes only a moment.'}</p>
+          {bootstrapError && (
+            <div className="actions-row" style={{ justifyContent: 'center' }}>
+              <button className="button" onClick={() => { setLoading(true); bootstrap().catch(() => null).finally(() => setLoading(false)); }}>Try again</button>
+              <button className="button button-secondary" onClick={() => { setLoading(true); resetIdentity().catch(() => null).finally(() => setLoading(false)); }}>Start fresh</button>
+            </div>
+          )}
         </div>
       </div>
     );

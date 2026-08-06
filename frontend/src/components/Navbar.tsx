@@ -36,7 +36,7 @@ export default function Navbar() {
 
         {guest && (
           <div style={{ position: 'relative' }}>
-            <button className="button button-secondary" onClick={() => setOpen((value) => !value)}>
+            <button className="button button-secondary" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
               <span
                 aria-hidden
                 style={{
@@ -57,7 +57,7 @@ export default function Navbar() {
               {guest.displayName}
             </button>
             {open && (
-              <div className="card glass notification-menu">
+              <div className="card glass notification-menu" role="menu">
                 <button
                   className="button button-secondary"
                   style={{ width: '100%', marginBottom: 8 }}
@@ -78,10 +78,10 @@ export default function Navbar() {
       </div>
 
       {showNameModal && (
-        <div className="modal-backdrop">
-          <div className="card glass modal-card">
+        <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowNameModal(false)}>
+          <div className="card glass modal-card" role="dialog" aria-modal="true" aria-labelledby="name-dialog-title">
             <div className="modal-header" style={{ marginBottom: 16 }}>
-              <h3 style={{ margin: 0 }}>Change name</h3>
+              <h3 id="name-dialog-title" style={{ margin: 0 }}>Change name</h3>
               <button className="button button-secondary" onClick={() => setShowNameModal(false)} style={{ width: 'auto' }}>
                 Close
               </button>
@@ -93,6 +93,11 @@ export default function Navbar() {
                 onChange={(event) => setNameDraft(event.target.value)}
                 maxLength={24}
                 autoFocus
+                aria-label="Display name"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') saveName();
+                  if (event.key === 'Escape') setShowNameModal(false);
+                }}
               />
               <button className="button" onClick={saveName}>
                 Save name
