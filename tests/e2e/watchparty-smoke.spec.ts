@@ -18,15 +18,15 @@ test('two users can create, join, chat, and hit chat rate limits', async ({ brow
   await bootstrapGuest(guest);
 
   await host.goto('/create-room');
-  await host.locator('input[placeholder="e.g. Movie Night"]').fill('E2E Watch Room');
-  await host.getByRole('button', { name: /create watch party/i }).click();
+  await host.getByLabel('Optional title').fill('E2E Watch Room');
+  await host.getByRole('button', { name: /^Create room$/i }).click();
   await host.waitForURL(/\/room\/[A-Z0-9]+/);
 
   const roomCode = new URL(host.url()).pathname.split('/').pop() || '';
   expect(roomCode).toHaveLength(6);
 
   await guest.goto('/dashboard');
-  await guest.locator('input[placeholder^="Room code"]').fill(roomCode);
+  await guest.getByLabel('Room code or invite link').fill(roomCode);
   await guest.getByRole('button', { name: /^Join room$/i }).click();
   await guest.waitForURL(new RegExp(`/room/${roomCode}`));
 
