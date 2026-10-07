@@ -321,7 +321,7 @@ export default function VideoCallPanel({
         }
         const publishStream = () => updatePeer(member.socketId, {
           stream: new MediaStream(peer.remoteStream.getTracks()),
-          status: peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Waiting for video',
+          status: peer.pc.connectionState === 'connected' && peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Connecting',
         });
         track.onunmute = publishStream;
         track.onmute = () => updatePeer(member.socketId, { status: 'Waiting for video' });
@@ -329,7 +329,7 @@ export default function VideoCallPanel({
       });
       updatePeer(member.socketId, {
         stream: new MediaStream(peer.remoteStream.getTracks()),
-        status: peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Waiting for video',
+        status: peer.pc.connectionState === 'connected' && peer.remoteStream.getVideoTracks().length ? 'Connected' : 'Connecting',
       });
     };
 
@@ -1343,13 +1343,16 @@ function RemoteVideoTile({ peerId, peer }: { peerId: string; peer: PeerState }) 
   const shouldShowRelayFrame = !shouldShowWebRtcVideo && !!peer.fallbackFrameUrl;
 
   useEffect(() => {
-    if (!peer.stream) return;
     const video = videoRef.current;
-    if (!video || attachedStreamRef.current === peer.stream) return;
+    if (!video || !peer.stream) {
+      attachedStreamRef.current = null;
+      return;
+    }
+    if (attachedStreamRef.current === peer.stream && video.srcObject === peer.stream) return;
     attachedStreamRef.current = peer.stream;
     video.srcObject = peer.stream;
     video.play().catch(() => null);
-  }, [peer.stream, peerId]);
+  }, [peer.stream, peerId, shouldShowWebRtcVideo]);
 
   return (
     <div className="video-call-tile" style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
