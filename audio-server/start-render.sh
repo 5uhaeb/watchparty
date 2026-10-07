@@ -27,9 +27,18 @@ envsubst '$RENDER_PORT $JANUS_INTERNAL_WS_PORT' \
 janus -F /etc/janus &
 JANUS_PID="$!"
 
-trap 'kill "$JANUS_PID" 2>/dev/null || true' INT TERM
-
 nginx -g 'daemon off;' &
 NGINX_PID="$!"
 
-wait "$NGINX_PID"
+cleanup() {
+  kill "$JANUS_PID" "$NGINX_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+
+# Stop the container if either service fails, rather than leaving a healthy-looking
+# nginx endpoint after Janus has exited.
+while kill -0 "$JANUS_PID" 2>/dev/null && kill -0 "$NGINX_PID" 2>/dev/null; do
+  sleep 2
+done
+exit 1

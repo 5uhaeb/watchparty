@@ -28,14 +28,14 @@ Then run the app, open two browser windows, join the same room, start the call, 
 
 1. Use the repository root `render.yaml` Blueprint.
 2. Render will deploy one Docker web service named `watchparty` and one Docker web service named `watchparty-janus-audio`.
-3. The Janus audio service exposes the WebSocket transport at the service root. Janus uses `/janus` for HTTP transport, but WebSockets do not include that path.
+3. nginx listens on `PORT` (10000 on Render) and forwards WebSockets at the service root or `/janus` to Janus on 8188. `/healthz` checks container liveness; verify a Janus protocol exchange separately. The container exits if nginx or Janus stops.
 4. Set the frontend variable:
 
 ```bash
 NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-janus-render-url
 ```
 
-The user request mentions `VITE_AUDIO_SERVER_WS_URL`; this repo is a Next.js app, so `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` is the variable that is exposed to browser code. The client also checks `VITE_AUDIO_SERVER_WS_URL` for Vite-compatible builds.
+This repo is a Next.js app, so `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` is the variable exposed to browser code. The client also checks `VITE_AUDIO_SERVER_WS_URL` for Vite-compatible builds.
 
 ## Production Notes
 

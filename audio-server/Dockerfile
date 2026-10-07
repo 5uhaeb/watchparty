@@ -10,7 +10,8 @@ COPY janus.plugin.audiobridge.jcfg /etc/janus/janus.plugin.audiobridge.jcfg
 COPY nginx.conf /etc/nginx/templates/watchparty-janus.conf.template
 COPY start-render.sh /usr/local/bin/start-janus-render
 
-RUN chmod +x /usr/local/bin/start-janus-render
+RUN chmod +x /usr/local/bin/start-janus-render \
+  && rm -f /etc/nginx/sites-enabled/default
 
 EXPOSE 8188
 EXPOSE 8080

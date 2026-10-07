@@ -20,7 +20,10 @@ services:
     runtime: docker
     dockerfilePath: ./audio-server/Dockerfile
     dockerContext: ./audio-server
+    healthCheckPath: /healthz
     envVars:
+      - key: PORT
+        value: 10000
       - key: JANUS_PUBLIC_IP
         sync: false
       - key: JANUS_STUN_SERVER
