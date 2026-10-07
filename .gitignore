@@ -8,3 +8,7 @@ coverage
 .logs
 .vercel
 .env*
+!.env.example
+playwright-report/
+test-results/
+*.tsbuildinfo

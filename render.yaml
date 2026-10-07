@@ -12,7 +12,7 @@ services:
         sync: false
       - key: CLIENT_URL
         sync: false
-      - key: JWT_SECRET
+      - key: GUEST_JWT_SECRET
         generateValue: true
 
   - type: web

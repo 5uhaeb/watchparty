@@ -1,178 +1,84 @@
-# WatchParty Starter
+# WatchParty
 
-A simple full-stack watch party starter with:
-- Next.js frontend
-- Express + Socket.IO backend
-- Janus AudioBridge room audio service
-- MongoDB Atlas
-- Anonymous guest identity
-- Room creation, join, chat, and basic playback sync
-- In-memory transient presence with a 60-second reconnect grace window
+Shared watch rooms with chat, playback synchronization and browser WebRTC calls. The frontend is Next.js; Express and Socket.IO manage guest identity, room state and signaling.
 
-## Important note on streaming platforms
-This starter supports:
-- YouTube links
-- local file playback metadata sync
-- local file streaming with WebRTC, where the host's browser streams its local video playback directly to viewers
-- HYPERION.EXE as an embedded local room game source
-- a Chrome/Edge companion extension for Hotstar/JioHotstar page overlays
-- anonymous guest identity with a signed httpOnly cookie
+## What it does
 
-OTT/browser-extension sync is disabled. The current focus is the in-room video call, local streaming, and Janus room audio.
+- Creates shareable rooms with host/admin playback and source permissions.
+- Supports YouTube, local playback and host-to-viewer local-file streaming.
+- Relays WebRTC offers/answers and ICE candidates for camera calls and local streams.
+- Keeps a 60-second reconnect grace period before removing a participant.
+- Includes optional Janus mixed room audio, a standalone embedded game and an extension overlay.
 
-## Hotstar/JioHotstar companion extension
+OTT playback synchronization is disabled on the server. The extension code remains for the overlay; do not describe provider playback sync as working. Mesh calls and local streams are intended for small rooms.
 
-The `extension/` folder contains a Manifest V3 companion extension that works like a party overlay on the OTT page itself. It injects chat, reactions, participant count, and playback sync controls on Hotstar/JioHotstar pages while the video remains on the provider site. It does not frame, capture, download, rebroadcast, or bypass protected media.
-
-Load it from `chrome://extensions` with Developer mode, then set the WatchParty room code and backend URLs from the extension popup.
-
-## Embedded games
-
-Hosts/admins can choose **Hyperion** from the source picker to launch the bundled `HYPERION.EXE` side-scrolling shooter in the room player. The game is served from `frontend/public/games/hyperion/` and runs locally for each participant inside an iframe, so it does not require a third-party CDN at runtime. The original editable game package lives in `hyperion.io/`.
-
-## Local file streaming
-
-Hosts can choose **Stream local file** inside a room. The file stays on the host device: the backend only relays WebRTC SDP and ICE messages over Socket.IO, and no media bytes are uploaded to the server.
-
-The browser must be able to decode the selected file before it can stream it. MP4/WebM/MOV are generally reliable in Chromium-based browsers; MKV/AVI support depends on the codecs inside the file and the browser/device.
-
-For WebRTC networking, the frontend reads:
-
-```env
-NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URLS=turn:your-turn-host:3478,turns:your-turn-host:5349?transport=tcp
-NEXT_PUBLIC_TURN_USER=your_turn_username
-NEXT_PUBLIC_TURN_CRED=your_turn_password
-```
-
-Without real TURN, local streaming and camera calls will often work only on the same WiFi network and fail across mobile data, different routers, CGNAT, school/office networks, or strict firewalls. Set TURN credentials in Vercel for cross-network rooms. `NEXT_PUBLIC_TURN_URLS` accepts comma-separated URLs, for example UDP and TCP/TLS relay URLs from the same provider. `NEXT_PUBLIC_TURN_USERNAME` / `NEXT_PUBLIC_TURN_PASSWORD` are also accepted aliases.
-
-## Room audio mixing
-
-WatchParty uses Janus AudioBridge for room audio. The Janus config lives in `audio-server/`. On Render, `render.yaml` deploys a separate `watchparty-janus-audio` Docker service and the frontend connects to the service WebSocket root. Janus uses `/janus` for HTTP transport, but not for WebSockets.
-
-The frontend requires the Janus WebSocket URL:
-
-```env
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
-```
-
-For Render, set it to the deployed Janus audio service URL:
-
-```env
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=wss://your-janus-render-url
-```
-
-If this value is missing or the Janus service is not running, camera video can still connect, but mixed room audio will not work.
-
-## Call & Sync Architecture
-
-WatchParty uses raw WebRTC mesh calls plus Socket.IO signaling. Each participant owns one peer connection per remote socket, and each remote tile owns its own `<video>` element.
+## Architecture
 
 ```text
-Participant A camera/mic ─┐
-                          ├─ RTCPeerConnection Map<peerSocketId, pc> ── Socket.IO call:signal ── peers
-Participant B camera/mic ─┘
-
-Host player time ── player:play/pause/seek/heartbeat { mediaTimeMs, wallClockMs } ── guests
-Guests compute drift = host media time + wall-clock elapsed - local media time.
+Next.js browser -> Express guest/room APIs -> MongoDB guests, rooms and messages
+                -> Socket.IO rooms -> chat, playback state, SDP/ICE signaling
+                -> WebRTC peers -> camera/local-file media
+                -> optional Janus AudioBridge -> mixed room audio
 ```
 
-Sync is host-authoritative. The host broadcasts play, pause, seek, and 3-second heartbeat updates with media time and wall-clock time. Guests hard-seek for drift over 400 ms and gently correct smaller drift with playback-rate nudges. The call panel also exposes **Sync Now**: hosts broadcast their current state, while guests request the latest host state and seek locally.
+Room creation records the owner guest ID and a random room code. Socket handshakes verify the signed guest identity; joining subscribes to the room and returns chat/playback state. Control events check server-side permissions. Call signals carry the server-authenticated sender ID and remain in the current room. Disconnects retain transient presence for 60 seconds; reconnect restores it, while expiry removes the participant and may transfer ownership.
 
-Call mute keeps the outgoing audio sender alive and silences it with a gain node, which avoids tearing down the WebRTC audio track. Camera switching uses `RTCRtpSender.replaceTrack()` so flipping cameras does not renegotiate the call.
-
-Manual test matrix for call and sync changes:
-
-| Scenario | Expected result |
-| --- | --- |
-| 2 browser profiles join call | Each sees the other's remote video tile within 3 seconds. |
-| 3 browser profiles join call | Every participant sees two remote tiles. |
-| Late joiner enters active call | Existing peers negotiate to the late joiner within 3 seconds. |
-| Peer leaves, then rejoins | Old tile is removed, new tile reconnects with a fresh peer connection. |
-| Host play/pause/seek | Guests reflect the state within about 500 ms on healthy networks. |
-| Guest presses Sync Now | Guest requests host state and seeks locally; toast says "Synced to host". |
-| Host presses Sync Now | Host broadcasts current media state to the room. |
-| Flip Camera with two cameras | Outgoing video changes without leaving or renegotiating the call. |
-| Mute/unmute | Remote participants keep the audio track alive; muted sends silence. |
-| Fullscreen modes 1/2/3 | Side, cinema, and overlay layouts switch with keyboard or segmented controls. |
-
-## Project structure
-
-```bash
-watchparty-starter/
-  apps/
-    web/
-    server/
-  packages/
-    shared/
-```
+STUN helps peers discover network addresses. TURN relays media when a direct connection cannot be established. The API relays local-stream signaling, not local-file bytes. Guest identity is anonymous; it is not a password/account system. Optional Janus rooms do not bind admission to the application guest token. Bootstrap returns a client bearer token as well as an HttpOnly cookie, so the token can reach browser code.
 
 ## Run locally
 
-### 1. Backend
+Use Node.js 22 and a local or Atlas MongoDB database.
+
 ```bash
-cd apps/server
-npm install
-cp .env.example .env
-npm run dev
+npm ci
+npm --prefix backend ci
+npm --prefix frontend ci
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+npm --prefix backend run dev
 ```
 
-### 2. Frontend
+In another terminal, run `npm --prefix frontend run dev` and open http://localhost:3000. On PowerShell, use `Copy-Item` instead of `cp` if preferred. Generate a server secret with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` and place it only in the backend environment.
+
+## Environment
+
+| Location | Variables |
+| --- | --- |
+| Backend | `MONGODB_URI`, `GUEST_JWT_SECRET`, `CLIENT_URL` (comma-separated frontend origins), optional `PORT` |
+| Frontend | `NEXT_PUBLIC_API_URL` ending `/api`, `NEXT_PUBLIC_SOCKET_URL` |
+| Browser ICE | `NEXT_PUBLIC_STUN_URLS`, optional `NEXT_PUBLIC_TURN_URLS`, `NEXT_PUBLIC_TURN_USER`, `NEXT_PUBLIC_TURN_CRED` |
+| Optional audio | `NEXT_PUBLIC_AUDIO_SERVER_WS_URL`, e.g. `ws://localhost:8188` |
+
+Public frontend variables are embedded at build time. TURN credentials provided this way are visible to users; use scoped, short-lived credentials for a production relay. The client also accepts the existing username/password and single-URL aliases. No Redis environment is needed: presence is in memory.
+
+Guest tokens expire after 24 hours and may renew the same guest within the 30-day identity lifetime. HTTP and WebSocket origins are checked, guest HMAC signatures are verified, and room control/data mutations enforce guest permissions. Room codes are shareable access, not a private-account membership scheme. Browser extensions remain accepted origins for the companion overlay.
+
+## Verification
+
 ```bash
-cd apps/web
-npm install
-cp .env.example .env.local
-npm run dev
+npm run test:unit
+npm --prefix frontend run lint
+npm --prefix frontend run build
+npm run test:e2e:install
+npm run test:e2e
 ```
 
-## Environment setup
+Unit tests cover presence/reconnect, permissions, rate limits, guest signatures, malformed socket inputs and cross-room call protection. Playwright needs a disposable MongoDB instance; configure `MONGODB_URI` explicitly for testing. CI starts a MongoDB service. A passing frontend build or unit suite does not verify microphone/camera, real TURN connectivity, Janus mixing or extension/provider integration.
 
-### Backend `.env`
-```env
-PORT=5000
-CLIENT_URL=http://localhost:3000
-MONGODB_URI=your_mongodb_atlas_uri
-GUEST_JWT_SECRET=replace_me
-```
+## Deployment
 
-`CLIENT_URL` accepts one frontend origin or a comma-separated allowlist of origins.
+Deploy `frontend/` on Vercel as Next.js with its build-time variables. Deploy `backend/` on Render using `npm ci` and `npm start`, or use the root Dockerfile/blueprint for the backend. Set `NODE_ENV=production`, `CLIENT_URL`, `MONGODB_URI` and `GUEST_JWT_SECRET`; `/api/health` is process liveness. Use one backend instance until presence and Socket.IO state can be shared.
 
-Presence is intentionally process-local and transient. Users are marked
-`reconnecting` on socket disconnect and removed after 60 seconds without
-returning, or immediately when they click Leave. Idle room presence expires after
-6 hours. Presence resets whenever the backend restarts, and connected clients
-rebuild it automatically as they reconnect.
+The separate Janus Docker service is optional. See [its setup](audio-server/README.md) for local ports and relay requirements: a reachable WebSocket does not prove media connectivity, especially on a host without exposed UDP ports. Janus WebSocket URLs use the service root, without `/janus`.
 
-### Frontend `.env.local`
-```env
-NEXT_PUBLIC_API_URL=http://localhost:5000/api
-NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
-NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302
-NEXT_PUBLIC_TURN_URLS=turn:your-turn-host:3478,turns:your-turn-host:5349?transport=tcp
-NEXT_PUBLIC_TURN_USER=your_turn_username
-NEXT_PUBLIC_TURN_CRED=your_turn_password
-NEXT_PUBLIC_AUDIO_SERVER_WS_URL=ws://localhost:8188
-```
+The editable game lives in `hyperion.io/` as HTML plus a local Phaser runtime. Copy those two files to `frontend/public/games/hyperion/` after editing; there is no game React/Vite build. See [extension setup](extension/README.md) for the companion overlay.
 
-## Vercel + Render deployment
-- Deploy `frontend/` to Vercel
-- Deploy the root `render.yaml` Blueprint to Render
-- Render creates the Node service named `watchparty` and the Janus service named `watchparty-janus-audio`
-- Point the frontend API/socket env vars to the Render backend URL
-- Point `NEXT_PUBLIC_AUDIO_SERVER_WS_URL` to the Janus service WebSocket URL without `/janus`, for example `wss://watchparty-janus-audio.onrender.com`
-- Allow CORS for the frontend URL in backend env
+Browser codec support varies. MP4/WebM are the best starting point; unsupported local codecs cannot become playable merely by changing the filename. Calls require browser permissions and suitable secure contexts.
 
-## What is included
-- anonymous guest bootstrap
-- dashboard
-- create room page
-- room join page
-- chat
-- simple playback state sync
+## Engineering lessons
 
-## Next recommended upgrades
-- host-only controls
-- persistent chat storage
-- YouTube iframe sync adapter
-- optional accounts
+- Authorize each socket event; an authenticated connection alone is insufficient.
+- Keep guest identity stable while socket IDs change during reconnection.
+- Validate room targets and derive sender identity on the server.
+- Separate signaling success from actual WebRTC media delivery.
+- Preserve working media code while removing unused scaffolding and inaccurate setup instructions.
