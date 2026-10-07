@@ -1,11 +1,15 @@
 general: {
   ws = true
   ws_port = ${JANUS_INTERNAL_WS_PORT}
-  ws_interface = "0.0.0.0"
+  ws_ip = "0.0.0.0"
 
   wss = false
-  admin_ws = false
   json = "indented"
+}
+
+admin: {
+  admin_ws = false
+  admin_wss = false
 }
 
 cors: {

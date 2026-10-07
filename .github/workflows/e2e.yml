@@ -42,6 +42,12 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Check unit tests, lint, and production build
+        run: |
+          npm run test:unit
+          npm --prefix frontend run lint
+          npm --prefix frontend run build
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
@@ -49,8 +55,4 @@ jobs:
         run: npm run test:e2e
         env:
           MONGODB_URI: mongodb://127.0.0.1:27017/watchparty-e2e
-          NEXTAUTH_SECRET: watchparty-e2e-secret
-          EXTENSION_INTERNAL_SECRET: watchparty-extension-internal
-          EXTENSION_TOKEN_SECRET: watchparty-extension-token
-          GOOGLE_CLIENT_ID: test-google-client
-          GOOGLE_CLIENT_SECRET: test-google-secret
+          GUEST_JWT_SECRET: watchparty-e2e-secret

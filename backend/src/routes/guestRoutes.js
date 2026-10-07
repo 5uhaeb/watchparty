@@ -24,7 +24,7 @@ router.post('/bootstrap', async (req, res) => {
     const { guest, token } = await bootstrapGuest(req, res);
     res.json({ ...serializeGuest(guest), token });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
@@ -46,7 +46,7 @@ router.patch('/me', requireGuest, async (req, res) => {
     setGuestCookie(res, token);
     res.json({ ...serializeGuest(guest), token });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
