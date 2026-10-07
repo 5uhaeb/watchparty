@@ -3,25 +3,17 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const guestRoutes = require('./routes/guestRoutes');
 const roomRoutes = require('./routes/roomRoutes');
+const { isAllowedOrigin } = require('./lib/origins');
 
 const app = express();
 
 app.set('trust proxy', 1);
 
-const allowedClientOrigins = new Set(
-  String(process.env.CLIENT_URL || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (allowedClientOrigins.has(origin)) return true;
-  if (/^chrome-extension:\/\//.test(origin)) return true;
-  if (/^moz-extension:\/\//.test(origin)) return true;
-  return false;
-}
+// Reject the request itself: CORS response headers alone do not prevent writes.
+app.use((req, res, next) => {
+  if (!isAllowedOrigin(req.headers.origin)) return res.status(403).json({ message: 'Origin not allowed' });
+  next();
+});
 
 app.use(cors({
   origin(origin, callback) {

@@ -51,8 +51,11 @@ function decodeGuestJwt(token) {
 }
 
 function verifyGuestJwt(token, { ignoreExpiration = false } = {}) {
-  const [header, payload, signature] = String(token || '').split('.');
-  if (!header || !payload || !signature) throw new Error('Invalid JWT');
+  const parts = String(token || '').split('.');
+  const [header, payload, signature] = parts;
+  if (parts.length !== 3 || !header || !payload || !signature) throw new Error('Invalid JWT');
+  const metadata = JSON.parse(decodeBase64Url(header));
+  if (metadata.alg !== 'HS256' || metadata.typ !== 'JWT') throw new Error('Invalid JWT header');
 
   const expected = crypto.createHmac('sha256', getSecret()).update(`${header}.${payload}`).digest('base64url');
   const actual = Buffer.from(signature);
@@ -62,7 +65,13 @@ function verifyGuestJwt(token, { ignoreExpiration = false } = {}) {
   }
 
   const claims = JSON.parse(decodeBase64Url(payload));
-  if (!ignoreExpiration && claims.exp && claims.exp <= Math.floor(Date.now() / 1000)) {
+  if (typeof claims.guestId !== 'string' || !claims.guestId ||
+      !Number.isFinite(claims.iat) || !Number.isFinite(claims.exp) ||
+      claims.exp <= claims.iat || claims.iat > Math.floor(Date.now() / 1000) + 60 ||
+      claims.iat + COOKIE_MAX_AGE_SECONDS <= Math.floor(Date.now() / 1000)) {
+    throw new Error('Invalid or stale JWT claims');
+  }
+  if (!ignoreExpiration && claims.exp <= Math.floor(Date.now() / 1000)) {
     const error = new Error('JWT expired');
     error.code = 'JWT_EXPIRED';
     error.claims = claims;
@@ -75,7 +84,11 @@ function parseCookies(header = '') {
   return header.split(';').reduce((cookies, part) => {
     const [rawName, ...rawValue] = part.trim().split('=');
     if (!rawName) return cookies;
-    cookies[rawName] = decodeURIComponent(rawValue.join('=') || '');
+    try {
+      cookies[rawName] = decodeURIComponent(rawValue.join('=') || '');
+    } catch {
+      // An unrelated malformed cookie must not break guest authentication.
+    }
     return cookies;
   }, {});
 }

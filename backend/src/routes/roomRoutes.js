@@ -1,7 +1,9 @@
+const crypto = require('node:crypto');
 const express = require('express');
 const Room = require('../models/Room');
 const Message = require('../models/Message');
 const { requireGuest } = require('../lib/guestAuth');
+const { isMember } = require('../lib/presence');
 
 const router = express.Router();
 
@@ -9,7 +11,7 @@ function generateCode(length = 6) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < length; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[crypto.randomInt(chars.length)];
   }
   return code;
 }
@@ -61,9 +63,9 @@ function isOwnerOrAdmin(room, guestId) {
   );
 }
 
-function can(room, guestId, permission) {
+async function can(room, guestId, permission) {
   if (isOwnerOrAdmin(room, guestId)) return true;
-  return room.permissions?.[permission] === 'all';
+  return room.permissions?.[permission] === 'all' && await isMember(room.code, guestId);
 }
 
 function normalizePermissionMode(value) {
@@ -118,7 +120,7 @@ router.post('/', requireGuest, async (req, res) => {
 
     res.status(201).json({ code: room.code, title: room.title });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
@@ -145,7 +147,7 @@ router.get('/:id/messages', async (req, res) => {
 
     res.json(messages.map(serializeMessage));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
@@ -157,7 +159,7 @@ router.get('/:code', async (req, res) => {
     if (!room) return res.status(404).json({ message: 'Room not found' });
     res.json(serializePublicRoom(room));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
@@ -168,7 +170,7 @@ router.patch('/:code', requireGuest, async (req, res) => {
     const guestId = getUserId(req);
 
     if (req.body?.title !== undefined) {
-      if (!can(room, guestId, 'editTitle')) return res.status(403).json({ message: 'Forbidden' });
+      if (!(await can(room, guestId, 'editTitle'))) return res.status(403).json({ message: 'Forbidden' });
       const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
       if (!title || title.length > 60) return res.status(400).json({ message: 'title must be 1-60 characters' });
       room.title = title;
@@ -191,7 +193,7 @@ router.patch('/:code', requireGuest, async (req, res) => {
     req.app.get('io')?.to(room.code).emit('room:state', { room });
     res.json(room);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 
@@ -214,7 +216,7 @@ router.delete('/:code', requireGuest, async (req, res) => {
 
     res.json({ message: 'Room closed' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Storage request failed. Please try again.' });
   }
 });
 

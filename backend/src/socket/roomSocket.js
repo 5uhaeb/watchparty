@@ -322,7 +322,14 @@ async function handlePlayerEvent(io, socket, eventName, rawPayload = {}) {
 }
 
 function registerRoomSocket(io, socket) {
-  socket.on('guest:nameChanged', async ({ displayName } = {}) => {
+  // Socket.IO does not catch rejections from async event listeners.
+  function on(event, handler) {
+    socket.on(event, (...args) => Promise.resolve()
+      .then(() => handler(...args))
+      .catch(() => socket.emit('error:validation', { message: 'Could not process this event.' })));
+  }
+
+  on('guest:nameChanged', async ({ displayName } = {}) => {
     const name = typeof displayName === 'string' ? displayName.trim() : '';
     if (name.length < 2 || name.length > 24) return;
 
@@ -339,14 +346,16 @@ function registerRoomSocket(io, socket) {
     }
   });
 
-  socket.on('user:join', ({ userId }) => {
+  on('user:join', ({ userId }) => {
     const guestId = socket.data?.guestId || userId;
     if (!guestId) return;
     socket.userId = guestId;
     socket.join(`user:${guestId}`);
   });
 
-  socket.on('room:join', async ({ roomCode, user = {} }) => {
+  on('room:join', async ({ roomCode, user = {} } = {}) => {
+    if (typeof roomCode !== 'string' || !/^[A-Z0-9]{6}$/i.test(roomCode)) return;
+    roomCode = roomCode.toUpperCase();
     const guestId = socket.data?.guestId || user.id || user.name;
     const displayName = socket.data?.displayName || user.name || 'Guest';
 
@@ -356,6 +365,18 @@ function registerRoomSocket(io, socket) {
       return;
     }
 
+    if (socket.roomCode && socket.roomCode !== roomCode) {
+      const previousRoom = socket.roomCode;
+      await presenceLeave(io, socket);
+      socket.to(previousRoom).emit('call:user-left', { userId: socket.callUserId, socketId: socket.id });
+      socket.leave(previousRoom);
+      socket.callRoomCode = null;
+      socket.callUserId = null;
+      socket.callName = null;
+      socket.data.callRoomCode = null;
+      socket.data.callUserId = null;
+      socket.data.callName = null;
+    }
     socket.join(roomCode);
     socket.roomCode = roomCode;
     socket.userData = { id: guestId, name: displayName };
@@ -396,9 +417,9 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('chat:send', async ({ roomCode, userName, text }) => {
+  on('chat:send', async ({ roomCode, userName, text }) => {
     if (!consumeBucket(socket, 'chat', 5, 10 * 1000)) return;
-    if (!text) return;
+    if (typeof text !== 'string') return;
 
     const trimmed = text.trim();
     if (!trimmed || trimmed.length > 500) return;
@@ -429,27 +450,27 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('chat:history', async ({ roomCode } = {}) => {
+  on('chat:history', async ({ roomCode } = {}) => {
     await emitChatHistory(socket, roomCode);
   });
 
-  socket.on('player:play', async (payload = {}) => {
+  on('player:play', async (payload = {}) => {
     await handlePlayerEvent(io, socket, 'player:play', payload);
   });
 
-  socket.on('player:pause', async (payload = {}) => {
+  on('player:pause', async (payload = {}) => {
     await handlePlayerEvent(io, socket, 'player:pause', payload);
   });
 
-  socket.on('player:seek', async (payload = {}) => {
+  on('player:seek', async (payload = {}) => {
     await handlePlayerEvent(io, socket, 'player:seek', payload);
   });
 
-  socket.on('player:heartbeat', async (payload = {}) => {
+  on('player:heartbeat', async (payload = {}) => {
     await handlePlayerEvent(io, socket, 'player:heartbeat', payload);
   });
 
-  socket.on('player:state', async ({ roomCode } = {}, callback) => {
+  on('player:state', async ({ roomCode } = {}, callback) => {
     if (!consumeBucket(socket, 'player', 10, 5 * 1000)) return;
 
     const targetRoomCode = getRoomCode(socket, roomCode);
@@ -466,7 +487,7 @@ function registerRoomSocket(io, socket) {
     socket.emit('player:state', payload);
   });
 
-  socket.on('player:manual-sync', async ({ roomCode } = {}, callback) => {
+  on('player:manual-sync', async ({ roomCode } = {}, callback) => {
     if (!consumeBucket(socket, 'player:manual-sync', 3, 5 * 1000)) return;
 
     const targetRoomCode = getRoomCode(socket, roomCode);
@@ -483,7 +504,7 @@ function registerRoomSocket(io, socket) {
     socket.emit('player:manual-sync', payload);
   });
 
-  socket.on('room:setSource', async (payload = {}) => {
+  on('room:setSource', async (payload = {}) => {
     const targetRoomCode = socket.roomCode;
     if (!targetRoomCode) return;
 
@@ -517,7 +538,7 @@ function registerRoomSocket(io, socket) {
     emitSourceChanged(io, targetRoomCode, room, source);
   });
 
-  socket.on('room:stopLocalStream', async () => {
+  on('room:stopLocalStream', async () => {
     const targetRoomCode = socket.roomCode;
     if (!targetRoomCode) return;
 
@@ -541,7 +562,7 @@ function registerRoomSocket(io, socket) {
     emitSourceChanged(io, targetRoomCode, room, null);
   });
 
-  socket.on('webrtc:viewerReady', async () => {
+  on('webrtc:viewerReady', async () => {
     const targetRoomCode = socket.roomCode;
     if (!targetRoomCode) return;
 
@@ -556,7 +577,7 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('webrtc:signal', async ({ toSocketId, data }) => {
+  on('webrtc:signal', async ({ toSocketId, data }) => {
     if (!toSocketId || !data) return;
     const targetRoomCode = socket.roomCode;
     if (!targetRoomCode) return;
@@ -577,7 +598,7 @@ function registerRoomSocket(io, socket) {
 
 
   // anyone in the room can drive sync now
-  socket.on('playback:update', async ({ roomCode, playback, userId }) => {
+  on('playback:update', async ({ roomCode, playback, userId }) => {
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: roomCode, isActive: true });
     if (!room) return;
@@ -587,9 +608,11 @@ function registerRoomSocket(io, socket) {
     const isHost = isOwnerOrAdmin(room, actorUserId);
     if (!isHost && room.permissions?.controlPlayback !== 'all') return;
 
+    const position = parsePositionSec(playback?.currentTime);
+    if (position === null) return;
     const nextPlayback = {
       isPlaying: !!playback?.isPlaying,
-      currentTime: Number(playback?.currentTime || 0),
+      currentTime: position,
       updatedAt: new Date(),
       updatedBy: actorUserId || 'unknown',
     };
@@ -605,7 +628,7 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('room:kick', async ({ roomCode, targetName }) => {
+  on('room:kick', async ({ roomCode, targetName }) => {
     const hostUserId = getUserId(socket);
     const room = await Room.findOne({ code: roomCode });
     if (!room || !isOwnerOrAdmin(room, hostUserId)) return;
@@ -619,6 +642,14 @@ function registerRoomSocket(io, socket) {
         });
         await presenceLeave(io, s);
         s.leave(roomCode);
+        s.roomCode = null;
+        s.callRoomCode = null;
+        s.callUserId = null;
+        s.callName = null;
+        s.data.callRoomCode = null;
+        s.data.callUserId = null;
+        s.data.callName = null;
+
         break;
       }
     }
@@ -629,7 +660,7 @@ function registerRoomSocket(io, socket) {
     }
   });
 
-  socket.on('call:join', async ({ roomCode, userId, name } = {}, callback) => {
+  on('call:join', async ({ roomCode, userId, name } = {}, callback) => {
     const targetRoomCode = roomCode || socket.roomCode;
     const guestId = socket.data?.guestId || userId || socket.userData?.id;
     const displayName = socket.data?.displayName || name || socket.userData?.name || guestId;
@@ -675,7 +706,7 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('call:signal', async ({ to, from, signal }) => {
+  on('call:signal', async ({ to, signal }) => {
     if (!to || !signal || !socket.callRoomCode || !socket.callUserId) return;
 
     const roomSockets = await io.in(socket.callRoomCode).fetchSockets();
@@ -688,15 +719,16 @@ function registerRoomSocket(io, socket) {
     if (target && (target.callUserId || target.data?.callUserId)) {
       io.to(target.id).emit('call:signal', {
         fromSocketId: socket.id,
-        fromUserId: from || socket.callUserId,
+        fromUserId: socket.callUserId,
         fromName: socket.callName,
         signal
       });
     }
   });
 
-  socket.on('call:leave', ({ roomCode } = {}) => {
-    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+  on('call:leave', ({ roomCode } = {}) => {
+    const targetRoomCode = socket.callRoomCode;
+    if (!targetRoomCode || socket.roomCode !== targetRoomCode || (roomCode && roomCode !== targetRoomCode)) return;
     if (targetRoomCode && socket.callUserId) {
       socket.to(targetRoomCode).emit('call:user-left', {
         userId: socket.callUserId,
@@ -711,8 +743,9 @@ function registerRoomSocket(io, socket) {
     socket.data.callName = null;
   });
 
-  socket.on('call:media-state', ({ roomCode, state } = {}) => {
-    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+  on('call:media-state', ({ roomCode, state } = {}) => {
+    const targetRoomCode = socket.callRoomCode;
+    if (!targetRoomCode || socket.roomCode !== targetRoomCode || (roomCode && roomCode !== targetRoomCode)) return;
     if (!targetRoomCode || !socket.callUserId) return;
     socket.to(targetRoomCode).emit('call:media-state', {
       userId: socket.callUserId,
@@ -721,8 +754,9 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('call:speaking', ({ roomCode, speaking } = {}) => {
-    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+  on('call:speaking', ({ roomCode, speaking } = {}) => {
+    const targetRoomCode = socket.callRoomCode;
+    if (!targetRoomCode || socket.roomCode !== targetRoomCode || (roomCode && roomCode !== targetRoomCode)) return;
     if (!targetRoomCode || !socket.callUserId) return;
     socket.to(targetRoomCode).emit('call:speaking', {
       userId: socket.callUserId,
@@ -731,11 +765,13 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('call:video-frame', ({ roomCode, frame, width, height, sentAt } = {}) => {
-    const targetRoomCode = roomCode || socket.callRoomCode || socket.roomCode;
+  on('call:video-frame', ({ roomCode, frame, width, height, sentAt } = {}) => {
+    const targetRoomCode = socket.callRoomCode;
+    if (!targetRoomCode || socket.roomCode !== targetRoomCode || (roomCode && roomCode !== targetRoomCode)) return;
     if (!targetRoomCode || !socket.callUserId) return;
     if (socket.callRoomCode && socket.callRoomCode !== targetRoomCode) return;
-    if (typeof frame !== 'string' || !frame.startsWith('data:image/') || frame.length > 240000) return;
+    if (typeof frame !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(frame) || frame.length > 240000) return;
+    if (!consumeBucket(socket, 'call:video-frame', 30, 1000)) return;
 
     socket.to(targetRoomCode).emit('call:video-frame', {
       socketId: socket.id,
@@ -748,20 +784,26 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('room:leave', async () => {
+  on('room:leave', async () => {
     if (!socket.roomCode || !socket.userData) return;
 
     const { roomCode, userData } = socket;
     await presenceLeave(io, socket);
     socket.leave(roomCode);
     socket.roomCode = null;
+    socket.callRoomCode = null;
+    socket.callUserId = null;
+    socket.callName = null;
+    socket.data.callRoomCode = null;
+    socket.data.callUserId = null;
+    socket.data.callName = null;
     io.to(roomCode).emit('room:state', {
       room: await Room.findOne({ code: roomCode }),
       systemMessage: `${userData.name} left the room`,
     });
   });
 
-  socket.on('room:end', async ({ roomCode, userId } = {}) => {
+  on('room:end', async ({ roomCode, userId } = {}) => {
     const targetRoomCode = getRoomCode(socket, roomCode);
     const actorUserId = getUserId(socket, userId);
     const room = await Room.findOne({ code: targetRoomCode, isActive: true });
@@ -776,7 +818,7 @@ function registerRoomSocket(io, socket) {
     });
   });
 
-  socket.on('disconnect', async () => {
+  on('disconnect', async () => {
     if (!socket.roomCode || !socket.userData) return;
 
     const { roomCode } = socket;

@@ -6,24 +6,14 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const registerRoomSocket = require('./socket/roomSocket');
 const { getGuestFromToken, getGuestToken, serializeGuest } = require('./lib/guestAuth');
-
-const allowedClientOrigins = new Set(
-  String(process.env.CLIENT_URL || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-);
+const { isAllowedOrigin } = require('./lib/origins');
 
 const server = http.createServer(app);
 const io = new Server(server, {
+  allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin)),
   cors: {
     origin(origin, callback) {
-      if (
-        !origin ||
-        allowedClientOrigins.has(origin) ||
-        /^chrome-extension:\/\//.test(origin) ||
-        /^moz-extension:\/\//.test(origin)
-      ) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
         return;
       }

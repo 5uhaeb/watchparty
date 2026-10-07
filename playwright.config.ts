@@ -1,26 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
 
 const frontendPort = Number(process.env.E2E_FRONTEND_PORT || 3000);
 const backendPort = Number(process.env.E2E_BACKEND_PORT || 5000);
 const baseURL = `http://127.0.0.1:${frontendPort}`;
 const backendURL = `http://127.0.0.1:${backendPort}`;
 
-function readDotEnvValue(filePath: string, key: string) {
-  if (!fs.existsSync(filePath)) return undefined;
-
-  const match = fs
-    .readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .find((line) => line.trim().startsWith(`${key}=`));
-
-  return match?.slice(key.length + 1).trim().replace(/^["']|["']$/g, '');
-}
-
 const mongoUri =
   process.env.MONGODB_URI ||
-  readDotEnvValue(path.join(__dirname, 'backend', '.env'), 'MONGODB_URI') ||
   'mongodb://127.0.0.1:27017/watchparty-e2e';
 
 export default defineConfig({
