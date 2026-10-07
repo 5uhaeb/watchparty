@@ -77,3 +77,37 @@ test('two users can create, join, chat, hit rate limits, and receive camera vide
   await hostContext.close();
   await guestContext.close();
 });
+
+test('camera frames fall back to sockets when ICE cannot connect', async ({ browser }) => {
+  const contexts = await Promise.all([0, 1].map(() => browser.newContext({ permissions: ['camera', 'microphone'] })));
+  try {
+    for (const context of contexts) {
+      await context.addInitScript(() => {
+        const Original = window.RTCPeerConnection;
+        window.RTCPeerConnection = class extends Original {
+          constructor(config?: RTCConfiguration) {
+            super({ ...config, iceServers: [], iceTransportPolicy: 'relay' });
+          }
+        };
+      });
+    }
+    const pages = await Promise.all(contexts.map(context => context.newPage()));
+    for (const page of pages) await bootstrapGuest(page);
+    const response = await contexts[0].request.post(`${backendURL}/api/rooms`, { data: { title: 'Fallback E2E room' } });
+    expect(response.status()).toBe(201);
+    const { code } = await response.json();
+    for (const page of pages) {
+      await page.goto(`/room/${code}`);
+      await page.getByRole('button', { name: /^Video call$/i }).click();
+      await page.getByRole('button', { name: /^Join Call$/ }).click();
+      await expect(page.getByRole('button', { name: /^Mute$/ })).toBeVisible();
+    }
+    for (const page of pages) {
+      await expect.poll(() => page.locator('.video-call-tile img').evaluateAll(
+        images => images.some(image => (image as HTMLImageElement).naturalWidth > 0)
+      )).toBe(true);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
