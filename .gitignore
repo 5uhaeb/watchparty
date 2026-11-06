@@ -12,3 +12,7 @@ coverage
 playwright-report/
 test-results/
 *.tsbuildinfo
+
+drivebase-project-credentials*.json
+*.aesgcm
+*.sqlite

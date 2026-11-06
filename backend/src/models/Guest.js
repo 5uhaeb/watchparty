@@ -12,4 +12,4 @@ const guestSchema = new mongoose.Schema(
 
 guestSchema.index({ lastSeenAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 });
 
-module.exports = mongoose.model('Guest', guestSchema);
+module.exports = require('../storage/model')(mongoose.model('Guest', guestSchema), 'guests');

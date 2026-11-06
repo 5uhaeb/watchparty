@@ -1,3 +1,5 @@
+> Drivebase migration branch: see [migration setup, authentication and rollout notes](DRIVEBASE_MIGRATION.md). The previous setup below describes the original deployment.
+
 # WatchParty
 
 Shared watch rooms with chat, playback synchronization and browser WebRTC calls. The frontend is Next.js; Express and Socket.IO manage guest identity, room state and signaling.

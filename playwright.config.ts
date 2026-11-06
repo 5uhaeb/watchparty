@@ -5,10 +5,6 @@ const backendPort = Number(process.env.E2E_BACKEND_PORT || 5000);
 const baseURL = `http://127.0.0.1:${frontendPort}`;
 const backendURL = `http://127.0.0.1:${backendPort}`;
 
-const mongoUri =
-  process.env.MONGODB_URI ||
-  'mongodb://127.0.0.1:27017/watchparty-e2e';
-
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60_000,
@@ -35,7 +31,9 @@ export default defineConfig({
         ...process.env,
         PORT: String(backendPort),
         CLIENT_URL: baseURL,
-        MONGODB_URI: mongoUri,
+        DRIVEBASE_API_URL: process.env.DRIVEBASE_API_URL || '',
+        DRIVEBASE_DATABASE_ID: process.env.DRIVEBASE_DATABASE_ID || '',
+        DRIVEBASE_API_KEY: process.env.DRIVEBASE_API_KEY || '',
         GUEST_JWT_SECRET: process.env.GUEST_JWT_SECRET || 'watchparty-e2e-secret',
       },
     },

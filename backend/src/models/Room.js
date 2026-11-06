@@ -26,4 +26,4 @@ const roomSchema = new mongoose.Schema(
 
 roomSchema.index({ lastActivityAt: 1 }, { expireAfterSeconds: 60 * 60 * 6 });
 
-module.exports = mongoose.model('Room', roomSchema);
+module.exports = require('../storage/model')(mongoose.model('Room', roomSchema), 'rooms');

@@ -80,3 +80,10 @@ start().catch((error) => {
   console.error('Server startup failed:', error.message);
   process.exit(1);
 });
+
+process.on('SIGTERM', async () => {
+  const deadline = setTimeout(() => process.exit(1), 25000);
+  deadline.unref();
+  await require('./storage/drivebase').flush().catch(() => console.error('Final playback checkpoint failed'));
+  io.close(); server.close(() => process.exit(0));
+});
